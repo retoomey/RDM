@@ -1,0 +1,45 @@
+Various notes as I work on this thing. This is highly experimental, though I've been adding a ton of tests to at least test basic working.
+
+-- logging is now spdlogger
+-- -P flags on binaries (part of getting rid of ancient portmapper)
+-- ripped out ancient portmapper stuff.  No one uses this in modern times
+   Well put it this way, no one 'should' use this in modern times.  It
+   drives IT people crazy dealing with security and this.
+-- removed ldm5 ldm4.  Ancient synchronous fallback stuff noone uses
+-- removed experimental ldm7 (I'm not surprised this died, extremely
+   difficult to implement with the older technology.  Better luck would be
+   to wrap the network layer and try grpc or a modern backend.  Which we've
+   designed for.
+-- ignoring grib2 and other special addons.  Raw data, baby!
+   Though adding them at some point would be fairly simple.
+-- rewrote notifyme, feedme, etc. to use a new C++ interface API hiding the
+   backend.  Tons of duplicate code still that could probably be cleaned up.
+
+June 16, 2026:
+-- ldmd makes .info files and pqact makes .state files.
+   The old way wrote to the running directory, but for containers or
+   a networked drive this is an issue.  We work like this:
+
+   1. We now use the registry setting to store a prefix for these, and the
+   machine hostname is added to the output path:
+   RegUtil path: "/state-path", Default is: "var/run" 
+   Left it var/run for now but the default would be say "" or "./" to match
+   legacy ldm's behavior.  The test scripts assume var/run.
+
+   2.  The hostname is added, so you get this:
+     var/run  + hostname +"_"+hash+".info"
+
+   3.  I didn't make them invisible by default ".' We can do that later if it matters
+   4.  I'm sharing state-path for .info and .state.  We could add another variable
+       if we want/need.
+
+-- Privilage manager.  We made a smart privilege manager that only does the root
+    stuff set sticky bit checking, etc. if the server tries to run on a privilaged
+    port.  If privilaged it drops permissions on children as necessary for 
+    security.  If a non-privilaged port well we always run as the user and don't
+    even try to swap around (yay!)
+
+-- IPV6 basic tests working.  Have to use the modern posix wrappers over the older ipv4.
+   Have to use the [] system for the ips
+
+-- Dynamic module encapsulation of the legacy sunrpc worker.  We load the network/name by name, allowing other network engines at some point.

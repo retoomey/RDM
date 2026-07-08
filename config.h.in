@@ -1,0 +1,12 @@
+/* config.h.cmake. Generated manually for CMake. */
+
+/* Header-file lockout */
+#cmakedefine CONFIG_H 1
+
+/* Needed for "struct ip_mreq on Darwin".
+ * Still needed for posix in 2026 */
+#cmakedefine _DARWIN_C_SOURCE
+
+/* Needed on FreeBSD systems 
+ * Still needed for posix in 2026 */
+#cmakedefine __BSD_VISIBLE
