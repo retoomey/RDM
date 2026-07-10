@@ -9,6 +9,10 @@
 // Include fmt for compile-time string evaluation, but absolutely NO spdlog headers.
 #include <spdlog/fmt/bundled/core.h>
 
+namespace spdlog { class logger; }
+
+namespace rdm {
+
 typedef enum {
   LOG_LEVEL_DEBUG = 0,
   LOG_LEVEL_INFO,
@@ -42,12 +46,16 @@ bool log_stderr_is_open(void);
 // --- Internal Routing ---
 void log_route_message(log_level_t level, const std::string& msg);
 
-#define log_is_enabled_debug   log_is_level_enabled(LOG_LEVEL_DEBUG)
-#define log_is_enabled_info    log_is_level_enabled(LOG_LEVEL_INFO)
-#define log_is_enabled_notice  log_is_level_enabled(LOG_LEVEL_NOTICE)
-#define log_is_enabled_warning log_is_level_enabled(LOG_LEVEL_WARNING)
-#define log_is_enabled_error   log_is_level_enabled(LOG_LEVEL_ERROR)
-#define log_is_enabled_fatal   log_is_level_enabled(LOG_LEVEL_FATAL)
+} // namespace ldm
+
+#define log_is_enabled_debug   rdm::log_is_level_enabled(rdm::LOG_LEVEL_DEBUG)
+#define log_is_enabled_info    rdm::log_is_level_enabled(rdm::LOG_LEVEL_INFO)
+#define log_is_enabled_notice  rdm::log_is_level_enabled(rdm::LOG_LEVEL_NOTICE)
+#define log_is_enabled_warning rdm::log_is_level_enabled(rdm::LOG_LEVEL_WARNING)
+#define log_is_enabled_error   rdm::log_is_level_enabled(rdm::LOG_LEVEL_ERROR)
+#define log_is_enabled_fatal   rdm::log_is_level_enabled(rdm::LOG_LEVEL_FATAL)
+
+namespace rdm {
 
 struct ErrnoPreserver {
   int saved_errno;
@@ -107,13 +115,15 @@ inline void LogSyserr(fmt::format_string<Args...> fmt_str, Args&&... args) {
   log_route_message(LOG_LEVEL_ERROR, fmt::format("{} : {}", user_msg, std::strerror(ep.saved_errno)));
 }
 
+} // namespace rdm
+
 #ifdef NDEBUG
 # define log_assert(expr) ((void) 0)
 #else
 # define log_assert(expr) \
   do { \
     if (!(expr)) { \
-      LogFatal("Assertion failure: {}", #expr); \
+      rdm::LogFatal("Assertion failure: {}", #expr); \
       std::abort(); \
     } \
   } while (0)

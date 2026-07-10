@@ -26,22 +26,22 @@ static void LoadPlugin(const std::string& type) {
 
     // e.g., "librdmnetsunrpc.so"
     std::string libName = "librdmnet" + type + ".so";
-    void* handle = dlopen(libName.c_str(), RTLD_NOW | RTLD_GLOBAL);
+    void* handle = dlopen(libName.c_str(), RTLD_NOW | RTLD_LOCAL);
     
     if (!handle) {
         // Fallback: try without the rdm prefix
         libName = "lib" + type + ".so";
-        handle = dlopen(libName.c_str(), RTLD_NOW | RTLD_GLOBAL);
+        handle = dlopen(libName.c_str(), RTLD_NOW | RTLD_LOCAL);
         if (!handle) {
             LogFatal("Failed to load network engine plugin '{}': {}", type, dlerror());
             exit(1);
         }
     }
 
-    current_plugin.create_server = reinterpret_cast<IServer*(*)()>(dlsym(handle, "create_server"));
-    current_plugin.create_client = reinterpret_cast<IClient*(*)(const char*, uint16_t, unsigned int)>(dlsym(handle, "create_client"));
-    current_plugin.create_client_handoff = reinterpret_cast<IClient*(*)(const char*, uint16_t, int, const struct sockaddr_storage*, unsigned int)>(dlsym(handle, "create_client_handoff"));
-    current_plugin.create_serializer = reinterpret_cast<IProductSerializer*(*)()>(dlsym(handle, "create_serializer"));
+    current_plugin.create_server = reinterpret_cast<IServer*(*)()>(dlsym(handle, "rdm_create_server"));
+    current_plugin.create_client = reinterpret_cast<IClient*(*)(const char*, uint16_t, unsigned int)>(dlsym(handle, "rdm_create_client"));
+    current_plugin.create_client_handoff = reinterpret_cast<IClient*(*)(const char*, uint16_t, int, const struct sockaddr_storage*, unsigned int)>(dlsym(handle, "rdm_create_client_handoff"));
+    current_plugin.create_serializer = reinterpret_cast<IProductSerializer*(*)()>(dlsym(handle, "rdm_create_serializer"));
 
     if (!current_plugin.create_server || !current_plugin.create_client || 
         !current_plugin.create_client_handoff || !current_plugin.create_serializer) {

@@ -7,6 +7,7 @@
 #include "AclManager.h"
 #include "ULDB.h"
 #include "ProcessManager.h"
+#include "NetworkUtils.h"
 #include "UpFilter.h"
 #include "PeerContext.h"
 #include "Log.h"

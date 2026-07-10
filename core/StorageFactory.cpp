@@ -20,18 +20,18 @@ static void LoadPlugin(const std::string& type) {
     if (current_plugin.handle) return;
 
     std::string libName = "librdmstore" + type + ".so";
-    void* handle = dlopen(libName.c_str(), RTLD_NOW | RTLD_GLOBAL);
+    void* handle = dlopen(libName.c_str(), RTLD_NOW | RTLD_LOCAL);
     
     if (!handle) {
         libName = "lib" + type + ".so";
-        handle = dlopen(libName.c_str(), RTLD_NOW | RTLD_GLOBAL);
+        handle = dlopen(libName.c_str(), RTLD_NOW | RTLD_LOCAL);
         if (!handle) {
             LogFatal("Failed to load storage engine plugin '{}': {}", type, dlerror());
             exit(1);
         }
     }
 
-    current_plugin.create_store = reinterpret_cast<IProductStore*(*)(std::shared_ptr<IProductSerializer>)>(dlsym(handle, "create_store"));
+    current_plugin.create_store = reinterpret_cast<IProductStore*(*)(std::shared_ptr<IProductSerializer>)>(dlsym(handle, "rdm_create_store"));
 
     if (!current_plugin.create_store) {
         LogFatal("Plugin '{}' is missing required exported C-symbols: {}", type, dlerror());

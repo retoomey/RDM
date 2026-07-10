@@ -21,6 +21,8 @@
 #include <CUnit/CUnit.h>
 #include <CUnit/Basic.h>
 
+using namespace rdm;
+
 static char pathname[] = "/tmp/fileLockedBySelfXXXXXX";
 static int  fd;
 
