@@ -37,10 +37,10 @@ function(addLDMTest)
 
     # Give the test access to config.h, CUnit, and the root source tree
     target_include_directories(${TARGET_NAME} PRIVATE 
-        ${CMAKE_BINARY_DIR}      # Gives access to the generated config.h
-        ${CMAKE_SOURCE_DIR}      # Gives access to root-level headers
-        ${CMAKE_SOURCE_DIR}/core # Access to core interfaces
-        ${CMAKE_SOURCE_DIR}/storage/pq # Access to pq interfaces
+        ${RDM_BINARY_DIR}      # Gives access to the generated config.h
+        ${RDM_SOURCE_DIR}      # Gives access to root-level headers
+        ${RDM_SOURCE_DIR}/core # Access to core interfaces
+        ${RDM_SOURCE_DIR}/storage/pq # Access to pq interfaces
         ${CUNIT_INCLUDE_DIRS}    # Gives access to <CUnit/CUnit.h>
     )
 

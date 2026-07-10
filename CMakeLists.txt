@@ -12,6 +12,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Forces Position Independent Code across the board for dynamic linking
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# Tells the linker to look in the sibling library directory relative to the binary
+set(CMAKE_INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+
+# Keep the build-tree RPATH when installing so external dependencies still resolve
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+
+# Don't embed the absolute build-tree path into the final installed binary
+set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
+
 # Set a default build type if none was specified
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   message(STATUS "Setting build type to 'Release' as none was specified.")
@@ -26,8 +35,11 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Dregister=")
 
 include(GNUInstallDirs)
 
-# Add an option to easily turn testing on or off (defaults to OFF for now)
+# Add an option to easily turn testing on or off (defaults to ON for now)
 option(RDM_BUILD_TESTS "Build the LDM test suite" ON)
+
+# Add an option to build the legacy standalone applications
+option(RDM_BUILD_LEGACY_APPS "Build the original standalone LDM applications" ON)
 
 # Route all compiled outputs to a unified directory structure
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
@@ -118,14 +130,18 @@ add_library(rdmcore SHARED
 )
 
 target_include_directories(rdmcore PRIVATE
-    ${CMAKE_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/core
+    ${CMAKE_CURRENT_BINARY_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/core
     ${XML2_INCLUDE_DIRS} 
 )
 
+#target_include_directories(rdmcore PUBLIC
+#    ${CMAKE_CURRENT_SOURCE_DIR}/core
+#)
 target_include_directories(rdmcore PUBLIC
-    ${CMAKE_SOURCE_DIR}/core
+    $<BUILD_INTERFACE:${RDM_SOURCE_DIR}/core>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/rdm>
 )
 
 target_link_libraries(rdmcore PRIVATE 
@@ -160,10 +176,10 @@ add_library(rdmstorepq MODULE
 )
 
 target_include_directories(rdmstorepq PRIVATE
-    ${CMAKE_BINARY_DIR}
-    ${CMAKE_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/core
-    ${CMAKE_SOURCE_DIR}/storage/pq
+    ${CMAKE_CURRENT_BINARY_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage/pq
 )
 
 target_link_libraries(rdmstorepq PRIVATE rdmcore)
@@ -181,9 +197,9 @@ add_library(rdmnetsunrpc MODULE
 )
 
 target_include_directories(rdmnetsunrpc PRIVATE
-    ${CMAKE_BINARY_DIR}                                
-    ${CMAKE_SOURCE_DIR}/core
-    ${CMAKE_SOURCE_DIR}/network/sunrpc
+    ${CMAKE_CURRENT_BINARY_DIR}                                
+    ${CMAKE_CURRENT_SOURCE_DIR}/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/network/sunrpc
     ${TIRPC_INCLUDE_DIRS}
 )
 
@@ -203,11 +219,11 @@ function(addLDMBinary TARGET_NAME)
     add_executable(${TARGET_NAME} ${ARG_SOURCES})
 
     target_include_directories(${TARGET_NAME} PRIVATE
-        ${CMAKE_BINARY_DIR}
-        ${CMAKE_SOURCE_DIR}
+        ${RDM_BINARY_DIR} # Find config.h
+        ${RDM_SOURCE_DIR} # Root headers
         ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}
         ${TIRPC_INCLUDE_DIRS}
-        ${CMAKE_SOURCE_DIR}/tools/pqact 
     )
 
     if(ARG_INCLUDES)
@@ -230,7 +246,16 @@ if(RDM_BUILD_TESTS)
     add_subdirectory(test)
 endif()
 
-add_subdirectory(apps)
+# Only build apps and legacy folder structures if the flag is enabled
+if(RDM_BUILD_LEGACY_APPS)
+   add_subdirectory(apps)
+
+   # Standard folder skeleton for the system
+   install(DIRECTORY DESTINATION var/logs)
+   install(DIRECTORY DESTINATION var/queues)
+   install(DIRECTORY DESTINATION var/data)
+   install(DIRECTORY DESTINATION var/run)
+endif()
 
 # Install rules to copy libraries and plugins to their proper destinations
 install(TARGETS rdmcore rdmnetsunrpc rdmstorepq
@@ -238,8 +263,9 @@ install(TARGETS rdmcore rdmnetsunrpc rdmstorepq
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
-# Standard folder skeleton for the system
-install(DIRECTORY DESTINATION var/logs)
-install(DIRECTORY DESTINATION var/queues)
-install(DIRECTORY DESTINATION var/data)
-install(DIRECTORY DESTINATION var/run)
+# Install all header files, preserving their directory structure under include/rdm/
+install(DIRECTORY core/ network/ storage/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/rdm
+    FILES_MATCHING PATTERN "*.h"
+)
+

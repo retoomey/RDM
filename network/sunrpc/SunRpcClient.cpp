@@ -103,6 +103,9 @@ int SunRpcClient::Connect() {
         int retries = (timeout_sec_ > 0 ? timeout_sec_ : 60) * 10;
 
         for (int i = 0; i < retries; ++i) {
+            // Check it Ctrl-C is pressed to immediately abort
+            if (SignalManager::IsDone()) return -1;
+
             sck = socket(addrStorage.ss_family, SOCK_STREAM, IPPROTO_TCP);
             if (sck < 0) return -1;
 

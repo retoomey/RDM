@@ -139,6 +139,9 @@ protected:
         while (!SignalManager::IsDone()){
             if (client->Connect() != 0) {
                 LogError("Connection failed: {}", client->GetLastError());
+
+                if (SignalManager::IsDone()) break;
+
                 sleep(10);
                 continue;
             }
