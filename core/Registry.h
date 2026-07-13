@@ -1,5 +1,4 @@
 #pragma once
-
 #include <string>
 #include <unordered_map>
 #include <map>
@@ -65,19 +64,37 @@ struct RegistryKeyDefinition {
   ConfigValue defaultValue;
 };
 
-// System Operations
+// ==============================================================================
+// Library Consumer Configuration
+// ==============================================================================
+
+struct PathOverrides {
+    std::optional<std::string> ldmHome;
+    std::optional<std::string> registryDir;
+    std::optional<std::string> queuePath;
+    std::optional<std::string> ldmdConfigPath;
+    std::optional<std::string> pqactConfigPath;
+    std::optional<std::string> pqactDataDirPath;
+    std::optional<std::string> logDir;
+    std::optional<std::string> stateDir;
+};
+
+void applyOverrides(const PathOverrides& overrides);
+
+// ==============================================================================
+// Core Registry API
+// ==============================================================================
+
 void setDirectory(const std::string& path);
 bool close();
 void reset();
 void flush();
 
-// Dynamic Path API
 std::optional<std::string> getString(const std::string& path);
 bool putString(const std::string& path, const std::string& value);
 bool deleteValue(const std::string& path);
 std::map<std::string, std::string> getAllValues(const std::string& path = "/");
 
-// Strongly-Typed Enum API
 std::string getString(RegistryKey key);
 unsigned getUint(RegistryKey key);
 int getInt(RegistryKey key);
@@ -89,8 +106,8 @@ void putInt(RegistryKey key, int value);
 void putBool(RegistryKey key, bool value);
 void deleteValue(RegistryKey key);
 
-// Path Overrides and System Getters
 std::string getDefaultQueuePath();
+
 void setQueuePath(const std::string& path);
 std::string getQueuePath();
 
@@ -112,12 +129,15 @@ std::string getSurfQueuePath();
 void setPqsurfConfigPath(const std::string& path);
 std::string getPqsurfConfigPath();
 
+void setLdmHomePath(const std::string& path);
 std::string getLdmHomePath();
+
 std::string getSysConfDirPath();
 std::string getRegistryDirPath();
 
 void setLdmLogDir(const std::string& path);
 std::string getLdmLogDir();
+
 std::string getLdmVarRunDir();
 std::string getLdmStateDir();
 std::string getTopologyPrefix();

@@ -7,6 +7,7 @@
 #include "Registry.h"
 #include "SignalManager.h"
 #include "Timestamp.h"
+#include "NetworkUtils.h"
 
 #include <memory>
 #include <vector>

@@ -146,6 +146,7 @@ public:
   virtual
   ~Application() = default;
 
+#if 0
   int
   Execute(int argc, char * argv[])
   {
@@ -169,6 +170,36 @@ public:
     int status = Run();
 
     // Spams: LogNotice("Exiting");
+    LogShutdown();
+    return status;
+  }
+#endif
+
+  int
+  Execute(int argc, char * argv[])
+  {
+    // 1. Establish identity
+    char * argv0_copy = strdup(argv[0]);
+    progname_ = basename(argv0_copy);
+    free(argv0_copy);
+    
+    // 2. Boot the logging subsystem FIRST
+    if (LogInitialize(progname_.c_str())) { return EXIT_FAILURE; }
+    
+    // 3. Parse arguments (so we catch -v and -l flags to route/filter logs properly)
+    if (!ParseArguments(argc, argv)) {
+      PrintUsage();
+      return EXIT_FAILURE;
+    }
+
+    // 4. Shed root capabilities safely now that logging is ready
+    DropPrivileges();
+    
+    // 5. Continue with normal application execution
+    SignalManager::Initialize();
+    if (!Initialize()) { return EXIT_FAILURE; }
+    
+    int status = Run();
     LogShutdown();
     return status;
   }

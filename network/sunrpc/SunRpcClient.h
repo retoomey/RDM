@@ -3,6 +3,7 @@
 #include "IClient.h"
 #include "ServiceAddr.h"
 #include "Log.h"
+#include "RpcTypes.h"
 #include <string>
 #include <rpc/rpc.h>
 
@@ -51,7 +52,14 @@ private:
             tv
         );
         if (stat == RPC_SUCCESS || stat == RPC_TIMEDOUT) return 0;
-        LogError("RPC call failed: {}", clnt_sperrno(stat));
+        std::string procName = GetRpcProcName(procNum);
+        
+        // RPC_CANTRECV (9) and RPC_CANTSEND (8) usually just mean the TCP socket closed
+        if (stat == RPC_CANTRECV || stat == RPC_CANTSEND) {
+            LogNotice("Connection dropped by peer during {} heartbeat/transfer", procName);
+        } else {
+            LogError("RPC {} failed: {}", procName, clnt_sperrno(stat));
+        }
         return -1;
     }
 };

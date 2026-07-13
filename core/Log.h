@@ -27,7 +27,7 @@ typedef enum {
 namespace spdlog { class logger; }
 
 // --- Injection API for Host Applications (like RAPIO) ---
-void LogInjectSpdlog(std::shared_ptr<spdlog::logger> external_logger);
+void LogInjectSpdlog(std::shared_ptr<::spdlog::logger> external_logger);
 
 // --- Core API ---
 bool log_is_level_enabled(log_level_t level);

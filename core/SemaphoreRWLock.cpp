@@ -21,11 +21,6 @@ namespace {
         // Fetch the absolute run directory from the registry
         std::string runDir = registry::getLdmVarRunDir();
         
-        // Ensure the directory exists with proper permissions
-        if (EnsureDirectoryAccess(runDir, true) != 0) {
-            LogSyserr("Failed to access or create lock directory: {}", runDir);
-        }
-
         return runDir + "/ldm_rwlock_" + safeName + ".lck";
     }
 }
@@ -43,7 +38,7 @@ int SemaphoreRWLock::Create(const std::string& name) {
     lockFilePath_ = GetLockFilePath(name);
     
     // Create or open the lock file
-    fd_ = open(lockFilePath_.c_str(), O_CREAT | O_RDWR, 0666);
+    fd_ = OpenWithMkdirs(lockFilePath_, O_CREAT | O_RDWR, 0666);
     if (fd_ == -1) {
         LogSyserr("Couldn't create POSIX lock file: {}", lockFilePath_);
         return errno;

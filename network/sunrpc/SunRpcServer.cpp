@@ -525,6 +525,10 @@ int SunRpcServer::Start(const std::string& ip_addr, unsigned int port, unsigned 
     server_socket_ = sock;
     is_running_ = true;
 
+    // --- ADDED READINESS NOTIFICATION FOR SUPERVISOR COOPERATION ---
+    fmt::print(stdout, "[RDM_READY] Listening on port {}\n", port);
+    std::fflush(stdout);
+
     sock_svc(server_socket_, is_running_, max_clients, procMgr);
 
     return 0;

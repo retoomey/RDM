@@ -16,8 +16,23 @@
 namespace rdm {
 namespace registry {
 
+    // --- 1. Compile-Time Macro Fallbacks ---
+    #ifndef LDMHOME_DEFAULT
+    #define LDMHOME_DEFAULT "/usr/local/ldm"
+    #endif
+
+    #ifndef LDM_QUEUE_PATH_DEFAULT
+    #define LDM_QUEUE_PATH_DEFAULT "var/queues/ldm.pq"
+    #endif
+
+    #ifndef LDM_CONFIG_PATH_DEFAULT
+    #define LDM_CONFIG_PATH_DEFAULT "etc/ldmd.conf"
+    #endif
+
     namespace {
+        // Dynamic overrides set via API or CLI flags
         std::string overrideQueuePath;
+        std::string overrideLdmHomePath;
         std::string overridePqactConfigPath;
         std::string overridePqsurfConfigPath;
         std::string overrideLdmdConfigPath;
@@ -25,22 +40,42 @@ namespace registry {
         std::string overridePqsurfDataDirPath;
         std::string overrideSurfQueuePath;
         std::string overrideLdmLogDir;
+        std::string overrideRegistryDir;
+        std::string overrideStateDir;
 
-        std::string resolvePath(RegistryKey key, const std::string& overridePath, const std::string& defaultPath) {
-            if (!overridePath.empty()) {
-                return overridePath;
+        // --- 2. Centralized Absolute Path Resolver ---
+        static std::string ensureAbsolutePath(const std::string& path) {
+            if (path.empty() || path.front() == '/') {
+                return path;
             }
+            return getLdmHomePath() + "/" + path;
+        }
+
+        // --- 3. Unified Resolver ---
+        static std::string resolvePath(RegistryKey key, const std::string& apiOverride, const std::string& defaultPath) {
+            // 1. API / CLI Control (Highest Priority)
+            // OS handles relative overrides locally against CWD
+            if (!apiOverride.empty()) {
+                return apiOverride; 
+            }
+
+            // 2. XML Registry Control
             std::string val = getString(key);
-            if (val == defaultPath) {
+            
+            // 3. Fallback Default
+            if (val.empty() || val == defaultPath) {
+                val = defaultPath;
                 LogDebug("Using default pathname for key: \"{}\"", defaultPath);
             }
-            return val;
+
+            // 4. Anchor SYSTEM paths to LDMHOME
+            return ensureAbsolutePath(val);
         }
     }
 
     static const std::unordered_map<RegistryKey, RegistryKeyDefinition> KEY_MAP = {
         { RegistryKey::DeleteInfoFiles,         { "/delete-info-files",             false } },
-        { RegistryKey::Hostname,                { "/hostname",                      std::string("") } }, 
+        { RegistryKey::Hostname,                { "/hostname",                      std::string("") } },
         { RegistryKey::InsertionCheckInterval,  { "/insertion-check-interval",      60u } },
         { RegistryKey::ReconciliationMode,      { "/reconciliation-mode",           std::string("standard") } },
         { RegistryKey::CheckTimeEnabled,        { "/check-time/enabled",            true } },
@@ -61,12 +96,12 @@ namespace registry {
         { RegistryKey::PqactDatadirPath,        { "/pqact/datadir-path",            std::string("var/data") } },
         { RegistryKey::PqsurfConfigPath,        { "/pqsurf/config-path",            std::string("etc/pqsurf.conf") } },
         { RegistryKey::PqsurfDatadirPath,       { "/pqsurf/datadir-path",           std::string("var/data") } },
-        { RegistryKey::QueuePath,               { "/queue/path",                    std::string("var/queues/ldm.pq") } },
+        { RegistryKey::QueuePath,               { "/queue/path",                    std::string(LDM_QUEUE_PATH_DEFAULT) } },
         { RegistryKey::QueueSize,               { "/queue/size",                    500000000u } },
         { RegistryKey::QueueSlots,              { "/queue/slots",                   100000u } },
         { RegistryKey::ScourConfigPath,         { "/scour/config-path",             std::string("etc/scour.conf") } },
         { RegistryKey::ScourExcludePath,        { "/scour/exclude-path",            std::string("etc/scour_excludes.conf") } },
-        { RegistryKey::LdmdConfigPath,          { "/server/config-path",            std::string("etc/ldmd.conf") } },
+        { RegistryKey::LdmdConfigPath,          { "/server/config-path",            std::string(LDM_CONFIG_PATH_DEFAULT) } },
         { RegistryKey::IpAddr,                  { "/server/ip-addr",                std::string("0.0.0.0") } },
         { RegistryKey::MaxClients,              { "/server/max-clients",            256u } },
         { RegistryKey::MaxLatency,              { "/server/max-latency",            3600u } },
@@ -82,8 +117,8 @@ namespace registry {
         { RegistryKey::NetworkEngine,           { "/server/network-engine",         std::string("sunrpc") } },
         { RegistryKey::StorageEngine,           { "/server/storage-engine",         std::string("pq") } },
         { RegistryKey::RpcTimeout,              { "/server/rpc-timeout",            60u } },
-        { RegistryKey::SystemInterval,          { "/system/interval", 30u } },
-        { RegistryKey::MaxProductSizeBytes,     { "/server/max-product-size-bytes",       500000000u } }
+        { RegistryKey::SystemInterval,          { "/system/interval",               30u } },
+        { RegistryKey::MaxProductSizeBytes,     { "/server/max-product-size-bytes", 500000000u } }
     };
 
     static const RegistryKeyDefinition& getDef(RegistryKey key) {
@@ -101,38 +136,42 @@ namespace registry {
         mutable std::shared_mutex rw_mutex_;
         bool isDirty_;
 
-        RegistryEngine() : registryDir_("/usr/local/ldm/etc"), doc_(nullptr), isDirty_(false) {
+        RegistryEngine() : doc_(nullptr), isDirty_(false) {
             xmlInitParser();
             LIBXML_TEST_VERSION
         }
-
         ~RegistryEngine() {
             close();
             xmlCleanupParser();
         }
 
         std::string getRegistryFilePath() const {
-            return registryDir_ + "/registry.xml";
+            // 1. If explicitly set (e.g., via the test suite or applyOverrides), respect it.
+            if (!registryDir_.empty()) {
+                return registryDir_ + "/registry.xml";
+            }
+            
+            // 2. Otherwise, lazy-evaluate the path using the new Environment/API bounds
+            return getRegistryDirPath() + "/registry.xml";
         }
 
         bool ensureLoaded(bool createIfMissing) {
-            // Fast path with shared lock
             {
                 std::shared_lock<std::shared_mutex> readLock(rw_mutex_);
                 if (doc_ || (!createIfMissing && access(getRegistryFilePath().c_str(), F_OK) == -1)) {
                     return true;
                 }
             }
-
-            // Slow path with unique lock
             std::unique_lock<std::shared_mutex> writeLock(rw_mutex_);
-            if (doc_) return true; // Double-check
-            if (!createIfMissing && access(getRegistryFilePath().c_str(), F_OK) == -1) return false;
+            if (doc_) return true;
 
             std::string filepath = getRegistryFilePath();
+            if (!createIfMissing && access(filepath.c_str(), F_OK) == -1) return false;
+            
             if (access(filepath.c_str(), F_OK) != -1) {
                 doc_ = xmlParseFile(filepath.c_str());
             }
+
             if (!doc_) {
                 if (!createIfMissing) return false;
                 doc_ = xmlNewDoc(BAD_CAST "1.0");
@@ -163,6 +202,7 @@ namespace registry {
                 } else {
                     remainingPath.clear();
                 }
+
                 if (token.empty()) continue;
 
                 xmlNodePtr child = current->children;
@@ -198,6 +238,7 @@ namespace registry {
                     gatherValuesUnlocked(child, nextPath, result);
                 }
             }
+
             if (!hasChildren) {
                 xmlChar* content = xmlNodeGetContent(node);
                 if (content) {
@@ -251,7 +292,7 @@ namespace registry {
         std::optional<std::string> getString(const std::string& path) {
             if (path.find(' ') != std::string::npos) return std::nullopt;
             ensureLoaded(false);
-            
+
             std::shared_lock<std::shared_mutex> lock(rw_mutex_);
             if (!doc_) return std::nullopt;
 
@@ -289,8 +330,8 @@ namespace registry {
 
         bool deleteValue(const std::string& path) {
             ensureLoaded(false);
-
             std::unique_lock<std::shared_mutex> lock(rw_mutex_);
+
             xmlNodePtr node = findNodeUnlocked(path, false);
             if (!node) return false;
 
@@ -303,10 +344,10 @@ namespace registry {
         std::map<std::string, std::string> getAllValues(const std::string& path) {
             std::map<std::string, std::string> result;
             ensureLoaded(false);
-
             std::shared_lock<std::shared_mutex> lock(rw_mutex_);
+            
             if (!doc_) return result;
-
+            
             xmlNodePtr node = findNodeUnlocked(path, false);
             if (!node) return result;
 
@@ -317,8 +358,28 @@ namespace registry {
     };
 
     // ==============================================================================
+    // Application Initialization API
+    // ==============================================================================
+
+    void applyOverrides(const PathOverrides& overrides) {
+        if (overrides.ldmHome) setLdmHomePath(*overrides.ldmHome);
+        if (overrides.registryDir) {
+            overrideRegistryDir = *overrides.registryDir;
+            // Update the Engine's context immediately if the directory override changes
+            setDirectory(getRegistryDirPath());
+        }
+        if (overrides.queuePath) setQueuePath(*overrides.queuePath);
+        if (overrides.ldmdConfigPath) setLdmdConfigPath(*overrides.ldmdConfigPath);
+        if (overrides.pqactConfigPath) setPqactConfigPath(*overrides.pqactConfigPath);
+        if (overrides.pqactDataDirPath) setPqactDataDirPath(*overrides.pqactDataDirPath);
+        if (overrides.logDir) setLdmLogDir(*overrides.logDir);
+        if (overrides.stateDir) overrideStateDir = *overrides.stateDir;
+    }
+
+    // ==============================================================================
     // System Operations
     // ==============================================================================
+    
     void setDirectory(const std::string& path) { RegistryEngine::getInstance().setDirectory(path); }
     bool close() { return RegistryEngine::getInstance().close(); }
     void reset() { RegistryEngine::getInstance().reset(); }
@@ -327,6 +388,7 @@ namespace registry {
     // ==============================================================================
     // Dynamic Path API
     // ==============================================================================
+    
     std::optional<std::string> getString(const std::string& path) {
         return RegistryEngine::getInstance().getString(path);
     }
@@ -343,13 +405,16 @@ namespace registry {
     // ==============================================================================
     // Strongly-Typed Enum API
     // ==============================================================================
+    
     std::string getString(RegistryKey key) {
         const auto& def = getDef(key);
         auto optVal = RegistryEngine::getInstance().getString(def.xmlPath);
         if (optVal) return *optVal;
+
         LogDebug("RegistryKey {} not found in registry, using default.", def.xmlPath);
         return std::get<std::string>(def.defaultValue);
     }
+
     unsigned getUint(RegistryKey key) {
         const auto& def = getDef(key);
         auto optVal = RegistryEngine::getInstance().getString(def.xmlPath);
@@ -359,6 +424,7 @@ namespace registry {
         }
         return std::get<unsigned>(def.defaultValue);
     }
+
     int getInt(RegistryKey key) {
         const auto& def = getDef(key);
         auto optVal = RegistryEngine::getInstance().getString(def.xmlPath);
@@ -368,6 +434,7 @@ namespace registry {
         }
         return std::get<int>(def.defaultValue);
     }
+
     bool getBool(RegistryKey key) {
         const auto& def = getDef(key);
         auto optVal = RegistryEngine::getInstance().getString(def.xmlPath);
@@ -386,12 +453,53 @@ namespace registry {
     void putBool(RegistryKey key, bool value) { putString(key, value ? "TRUE" : "FALSE"); }
     void deleteValue(RegistryKey key) { RegistryEngine::getInstance().deleteValue(getDef(key).xmlPath); }
 
+    // ==============================================================================
+    // Path Generation & Anchoring
+    // ==============================================================================
+
+    std::string getLdmHomePath() {
+        if (!overrideLdmHomePath.empty()) {
+            return overrideLdmHomePath;
+        }
+        const char* envHome = std::getenv("LDMHOME");
+        if (envHome && std::strlen(envHome) > 0) {
+            return std::string(envHome);
+        }
+        const char* homeDir = std::getenv("HOME");
+        if (!homeDir) {
+            struct passwd* pw = getpwuid(getuid());
+            if (pw && pw->pw_dir) {
+                homeDir = pw->pw_dir;
+            }
+        }
+        if (homeDir) {
+            return std::string(homeDir) + "/ldm";
+        }
+        return LDMHOME_DEFAULT;
+    }
+
+    std::string getSysConfDirPath() {
+        return getLdmHomePath() + "/etc";
+    }
+
+    std::string getRegistryDirPath() {
+        if (!overrideRegistryDir.empty()) {
+            return ensureAbsolutePath(overrideRegistryDir);
+        }
+        const char* envRegDir = std::getenv("LDM_REGISTRY_DIR");
+        if (envRegDir && std::strlen(envRegDir) > 0) {
+            return ensureAbsolutePath(std::string(envRegDir));
+        }
+        return getSysConfDirPath();
+    }
+
     std::string getDefaultQueuePath() {
         return getString(RegistryKey::QueuePath);
     }
+
     void setQueuePath(const std::string& path) { overrideQueuePath = path; }
     std::string getQueuePath() {
-        return resolvePath(RegistryKey::QueuePath, overrideQueuePath, "/usr/local/ldm/var/queues/ldm.pq");
+        return resolvePath(RegistryKey::QueuePath, overrideQueuePath, LDM_QUEUE_PATH_DEFAULT);
     }
 
     void setPqactConfigPath(const std::string& path) { overridePqactConfigPath = path; }
@@ -401,7 +509,7 @@ namespace registry {
 
     void setLdmdConfigPath(const std::string& path) { overrideLdmdConfigPath = path; }
     std::string getLdmdConfigPath() {
-        return resolvePath(RegistryKey::LdmdConfigPath, overrideLdmdConfigPath, "etc/ldmd.conf");
+        return resolvePath(RegistryKey::LdmdConfigPath, overrideLdmdConfigPath, LDM_CONFIG_PATH_DEFAULT);
     }
 
     void setPqactDataDirPath(const std::string& path) { overridePqactDataDirPath = path; }
@@ -424,30 +532,26 @@ namespace registry {
         return resolvePath(RegistryKey::PqsurfConfigPath, overridePqsurfConfigPath, "etc/pqsurf.conf");
     }
 
-    std::string getLdmHomePath() {
-        const char* envHome = std::getenv("LDMHOME");
-        if (envHome && std::strlen(envHome) > 0) {
-            return std::string(envHome);
-        }
-        const char* homeDir = std::getenv("HOME");
-        if (!homeDir) {
-            struct passwd* pw = getpwuid(getuid());
-            if (pw && pw->pw_dir) {
-                homeDir = pw->pw_dir;
-            }
-        }
-        if (homeDir) {
-            return std::string(homeDir) + "/ldm";
-        }
-        return "/usr/local/ldm";
+    void setLdmHomePath(const std::string& path) { overrideLdmHomePath = path; }
+
+    void setLdmLogDir(const std::string& path) { overrideLdmLogDir = path; }
+    std::string getLdmLogDir() {
+        std::string dir = overrideLdmLogDir.empty() ? "var/logs" : overrideLdmLogDir;
+        return ensureAbsolutePath(dir);
     }
 
-    std::string getSysConfDirPath() {
-        return getLdmHomePath() + "/etc";
+    std::string getLdmVarRunDir() {
+       return getLdmHomePath() + "/var/run";
     }
 
-    std::string getRegistryDirPath() {
-        return getSysConfDirPath();
+    std::string getLdmStateDir() {
+        std::string dir = overrideStateDir.empty() ? getString(RegistryKey::StatePath) : overrideStateDir;
+        return ensureAbsolutePath(dir);
+    }
+
+    std::string getTopologyPrefix() {
+        static std::string prefix = getString(RegistryKey::TopologyPrefix);
+        return prefix;
     }
 
     int isAntiDosEnabled() {
@@ -464,29 +568,6 @@ namespace registry {
         return static_cast<unsigned int>(rawOffset);
     }
 
-    void setLdmLogDir(const std::string& path) { overrideLdmLogDir = path; }
-    std::string getLdmLogDir() {
-        std::string dir = overrideLdmLogDir.empty() ? "var/logs" : overrideLdmLogDir;
-        if (!dir.empty() && dir[0] != '/') {
-            return getLdmHomePath() + "/" + dir;
-        }
-        return dir;
-    }
-
-    std::string getLdmVarRunDir() {
-       return getLdmHomePath() + "/var/run";
-    }
-
-    std::string getLdmStateDir() {
-        static std::string stateDir = getString(RegistryKey::StatePath);
-        return stateDir;
-    }
-
-    std::string getTopologyPrefix() {
-        static std::string prefix = getString(RegistryKey::TopologyPrefix);
-        return prefix;
-    }
-
     unsigned int getSystemInterval() {
       static unsigned int cachedInterval = getUint(RegistryKey::SystemInterval);
       return cachedInterval;
@@ -497,5 +578,5 @@ namespace registry {
       return cachedMaxSize;
     }
 
-} // namespace registry
-} // namespace rdm
+}
+}

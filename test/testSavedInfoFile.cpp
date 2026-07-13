@@ -1,6 +1,7 @@
 #include "config.h"
 #include "Log.h"
 #include "Registry.h"
+#include "InfoFile.h"
 #include <CUnit/CUnit.h>
 #include <CUnit/Basic.h>
 #include <filesystem>
@@ -8,9 +9,6 @@
 #include <cstdio>
 #include <cstring>
 
-// Special double link.  The InfoFile belongs with ldmd not core,
-// but we're testing it so we add it special
-#include "../apps/ldmd/InfoFile.h"
 
 namespace fs = std::filesystem;
 using namespace rdm;

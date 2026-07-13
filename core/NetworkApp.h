@@ -13,8 +13,9 @@ protected:
   unsigned port_;
   unsigned timeo_;
 
+  // Setting timeout to 60, double ldmd to avoid early dropout
   explicit NetworkApp(const std::string& desc = "")
-    : Application(desc), remoteHost_("localhost"), port_(388), timeo_(25){ }
+    : Application(desc), remoteHost_("localhost"), port_(388), timeo_(60){ }
 
   void
   ConfigureOptions() override
@@ -23,7 +24,7 @@ protected:
 
     RegisterOption('h', "remote", "Have 'remote' send us data (default: localhost)", "localhost");
     RegisterOption('P', "port", "Set the port number (default: 388)", "388");
-    RegisterOption('t', "timeout", "Set RPC timeout to 'timeout' seconds", "25");
+    RegisterOption('t', "timeout", "Set RPC timeout to 'timeout' seconds", "60");
   }
 
   bool

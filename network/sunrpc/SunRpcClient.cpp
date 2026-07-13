@@ -381,6 +381,7 @@ FeedResponse SunRpcClient::SubscribeAndListen(const FeedRequest& request, std::s
         
         if (xprt != nullptr) {
             svc_unregister(LDM_PROG, SIX);
+            int loop_status = 0;
             if (svc_register(xprt, LDM_PROG, SIX, reinterpret_cast<void (*)(struct svc_req*, SVCXPRT*)>(client_dispatcher_6), 0)) {
                 
                 tl_client_handler = handler;
@@ -393,7 +394,6 @@ FeedResponse SunRpcClient::SubscribeAndListen(const FeedRequest& request, std::s
                                               sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
                 }
 
-                int loop_status = 0;
                 for (;;) {
                     if (SignalManager::IsDone()) {
                       loop_status = 0;
@@ -443,7 +443,10 @@ FeedResponse SunRpcClient::SubscribeAndListen(const FeedRequest& request, std::s
                 LogError("Failed to register dispatch routine for socket {}", sd);
             }
             svc_unregister(LDM_PROG, SIX);
-            svc_destroy(xprt);
+            //svc_destroy(xprt);
+            if (loop_status != ECONNRESET) { // avoid double free.  We need RAII badly
+                svc_destroy(xprt);
+            }
         } else {
             LogError("Failed to initialize server-side transport on socket {}", sd);
         }

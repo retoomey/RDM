@@ -103,6 +103,8 @@ include_directories(
 # ==============================================================================
 add_library(rdmcore SHARED
     core/Log.cpp
+    core/RdmEngine.cpp
+    core/InfoFile.cpp
     core/SignalManager.cpp
     core/Signature.cpp
     core/FileUtil.cpp
@@ -127,6 +129,7 @@ add_library(rdmcore SHARED
     core/ProdInfo.cpp
     core/ProdClass.cpp
     core/ProdSpec.cpp
+    core/RdmEngine.cpp
 )
 
 target_include_directories(rdmcore PRIVATE

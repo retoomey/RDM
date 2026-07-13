@@ -126,7 +126,7 @@ addLDMTest(SOURCES testPQCheck.cpp)
 addLDMTest(SOURCES testPattern.cpp)
 
 # Test the new .info class handler
-addLDMTest(SOURCES testSavedInfoFile.cpp ../apps/ldmd/InfoFile.cpp)
+addLDMTest(SOURCES testSavedInfoFile.cpp)
 
 # Test the AutoShifter 
 addLDMTest(SOURCES testAutoShifter.cpp)
