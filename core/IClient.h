@@ -74,6 +74,9 @@ public:
   virtual void
   Disconnect() = 0;
 
+  // for push
+  virtual HiyaResponse SendHiya(const HiyaRequest& request, unsigned int timeoutSecs) = 0;
+
   virtual int DisableNagles(){ return 0; }
 
   virtual void SetMaxHereIs(unsigned int max_hereis){ }

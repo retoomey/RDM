@@ -39,6 +39,13 @@ private:
   bool isNotifier_{ false };
   bool isPrimary_{ false };
 
+  // State variables for incoming push data (mirroring DownstreamClientHandler)
+  bool expectBlkdata_{ false };
+  Product pendingProd_;
+  std::unique_ptr<IQueueEntry> activeQueueEntry_;
+  uint8_t * blkMmapPointer_{ nullptr };
+  size_t remaining_{ 0 };
+
   struct StreamContext {
     UpstreamServerHandler * handler;
     std::shared_ptr<IClient> client;
@@ -197,13 +204,124 @@ public:
     return processManager_.Contains(static_cast<pid_t>(pid));
   }
 
-  int OnHereIs(const PeerContext& peer, const Product& clean_prod) override { return -1; }
-  int OnComingSoon(const PeerContext& peer, const ProdInfo& clean_info, unsigned int pktsz) override { return -1; }
-  int OnBlkData(const PeerContext& peer, const uint8_t * signature, unsigned int pktnum, const uint8_t * data, unsigned int size) override { return -1; }
+  int OnHereIs(const PeerContext& peer, const Product& clean_prod) override {
+    ensureQueueOpen();
+    if (!queue_open_) { return static_cast<int>(PqStatus::System); }
+
+    Product prod = clean_prod;
+    // Track where this came from to prevent routing loops
+    prod.info.origin = network::AppendUpstreamHostToOrigin(clean_prod.info.origin, peer.hostname.c_str());
+
+    int error = managed_pq_->insert(prod);
+    
+    // Suppress logging for standard acceptable rejections like Duplicates or Oversized products
+    if (error != 0 && error != static_cast<int>(PqStatus::Dup) && error != static_cast<int>(PqStatus::Big)) {
+      LogError("UpstreamServerHandler OnHereIs insert failed: {}", managed_pq_->strerror(error));
+    }
+    
+    return error;
+  }
+
+  int OnComingSoon(const PeerContext& peer, const ProdInfo& clean_info, unsigned int pktsz) override {
+    ensureQueueOpen();
+    if (!queue_open_) { return static_cast<int>(PqStatus::System); }
+
+    // If we were already building a product and got interrupted, roll it back
+    if (expectBlkdata_) {
+      if (activeQueueEntry_) activeQueueEntry_->rollback();
+      expectBlkdata_ = false;
+    }
+
+    pendingProd_.info = clean_info;
+    pendingProd_.info.origin = network::AppendUpstreamHostToOrigin(clean_info.origin, peer.hostname.c_str());
+
+    int status = managed_pq_->newElement(pendingProd_.info, activeQueueEntry_);
+    if (status == 0) {
+      blkMmapPointer_ = static_cast<uint8_t *>(activeQueueEntry_->getPayloadPointer());
+      expectBlkdata_  = true;
+      remaining_      = pendingProd_.info.sz;
+    } else if (status != static_cast<int>(PqStatus::Dup) && status != static_cast<int>(PqStatus::Big)) {
+      LogError("UpstreamServerHandler OnComingSoon newElement failed: {}", managed_pq_->strerror(status));
+    }
+    
+    return status;
+  }
+
+  int OnBlkData(const PeerContext& peer, const uint8_t * signature, unsigned int pktnum, const uint8_t * data, unsigned int size) override {
+    if (!queue_open_ || !expectBlkdata_) { return 0; }
+
+    // Ensure the data belongs to the product we expect, and bounds check the size
+    if (!pendingProd_.info.signature.Equals(signature) || (size > remaining_)) {
+      activeQueueEntry_->rollback();
+      expectBlkdata_ = false;
+      return EINVAL;
+    }
+
+    // Direct memory-mapped write
+    size_t offset = pendingProd_.info.sz - remaining_;
+    std::memcpy(blkMmapPointer_ + offset, data, size);
+    remaining_ -= size;
+
+    if (remaining_ == 0) {
+      expectBlkdata_ = false;
+      int error = activeQueueEntry_->commit();
+      
+      if (error != 0) {
+        activeQueueEntry_->rollback();
+        if (error != static_cast<int>(PqStatus::Dup) && error != static_cast<int>(PqStatus::Big)) {
+          LogError("UpstreamServerHandler OnBlkData commit failed: {}", managed_pq_->strerror(error));
+        }
+      }
+      
+      blkMmapPointer_ = nullptr;
+      return error;
+    }
+    return 0;
+  }
+
   int OnNotification(const PeerContext& peer, const ProdInfo& info) override { return 0; }
   
+  // push related
   HiyaResponse OnHiyaRequest(const PeerContext& peer, const HiyaRequest& request) override {
-    return { ReplyStatus::DONT_SEND, 0, { } };
+
+    HiyaResponse response;
+    response.statusCode = ReplyStatus::DONT_SEND;
+    response.maxHereis = 0; 
+    
+    ProdClass acceptableClass;
+    int status = aclManager_.ReduceToAcceptable(peer.hostname, peer.ip_string, request.offeredClass, acceptableClass);
+
+    if (status != 0) {
+        LogNotice("Rejected HIYA from {} (No matching ACCEPT rule)", peer.hostname);
+        return response;
+    }
+
+    // Ensure our local queue is open to receive the pushed data
+    ensureQueueOpen();
+    if (!queue_open_) {
+        response.statusCode = ReplyStatus::SYSTEM_ERROR;
+        return response;
+    }
+
+    // Compare offered vs acceptable to determine OK vs RECLASS
+    if (request.offeredClass == acceptableClass) {
+        response.statusCode = ReplyStatus::OK;
+    } else {
+        response.statusCode = ReplyStatus::RECLASS;
+    }
+
+    response.acceptedClass = acceptableClass;
+    // We can pull max_hereis from registry or use a sensible default like 16384
+    response.maxHereis = 16384; 
+
+    // Setup state for incoming data
+    activeSub_ = acceptableClass;
+    expectBlkdata_ = false; // Reset block state
+
+    LogInfo("Accepted HIYA from {}, replying with {}", peer.hostname, 
+            (response.statusCode == ReplyStatus::OK ? "OK" : "RECLASS"));
+
+    return response;
   }
 
   pid_t ReapChildProcess() override { return 0; }

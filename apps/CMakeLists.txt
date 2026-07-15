@@ -25,6 +25,14 @@ addLDMBinary(pqinsert
 )
 
 # ==============================================================================
+# Executable Definition (pqsend)
+# ==============================================================================
+# The product queue pqsend utility
+addLDMBinary(pqsend
+    SOURCES pqsend.cpp
+)
+
+# ==============================================================================
 # Executable Definition (pqmon)
 # ==============================================================================
 # The queue health monitoring utility

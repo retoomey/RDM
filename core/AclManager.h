@@ -37,6 +37,10 @@ public:
   ReduceToAllowed(const std::string& hostName, const std::string& ipAddr, const ProdClass& want,
     ProdClass& intersect) const;
 
+  int 
+  ReduceToAcceptable(const std::string& hostName, const std::string& ipAddr, const ProdClass& offered,
+    ProdClass& intersect) const;
+
   std::shared_ptr<UpFilter>
   GetUpstreamFilter(const std::string& hostName, const std::string& ipAddr, const ProdClass& want) const;
 };

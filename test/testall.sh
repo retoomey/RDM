@@ -20,6 +20,7 @@ scripts=(
     "./testipv6.sh"
     "./testpqutil.sh"
     "./testsigusr2.sh"
+    "./testpqsend.sh"
     "./testpipeline.sh"
 )
 

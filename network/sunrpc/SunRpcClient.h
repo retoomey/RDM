@@ -30,6 +30,8 @@ public:
     FeedResponse SubscribeAndListen(const FeedRequest& request,
       std::shared_ptr<IServiceHandler> handler, unsigned int inactiveTimeoutSecs) override;
 
+    virtual HiyaResponse SendHiya(const HiyaRequest& request, unsigned int timeoutSecs) override;
+
 private:
     ServiceAddr target_;
     unsigned int timeout_sec_;

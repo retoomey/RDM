@@ -73,6 +73,42 @@ int AclManager::ReduceToAllowed(const std::string& hostName, const std::string& 
     return intersect.specs.empty() ? 1 : 0;
 }
 
+int AclManager::ReduceToAcceptable(const std::string& hostName, const std::string& ipAddr, const ProdClass& offered, ProdClass& intersect) const {
+    FeedType acceptedFeed = rdm::NONE;
+    
+    // Find matching ACCEPT rules for this host
+    for (const auto& rule : acceptRules_) {
+        if (IsHostMatch(hostName, ipAddr, rule.hostPattern)) {
+            acceptedFeed |= rule.feedtype;
+        }
+    }
+
+    if (acceptedFeed == rdm::NONE) {
+        return 1; // No matching ACCEPT rule found
+    }
+
+    intersect.from_sec = offered.from_sec;
+    intersect.from_usec = offered.from_usec;
+    intersect.to_sec = offered.to_sec;
+    intersect.to_usec = offered.to_usec;
+    intersect.specs.clear();
+
+    // Intersect the offered specs with the accepted feedtypes
+    for (const auto& spec : offered.specs) {
+        FeedType reduced = spec.feedtype & acceptedFeed;
+        if (reduced != rdm::NONE) {
+            ProdSpec newSpec;
+            newSpec.feedtype = reduced;
+            // Note: In a fully fleshed out version, we'd also intersect spec.pattern 
+            // with rule.prodPattern, but keeping it simple for the feedtype intersection first.
+            newSpec.pattern = spec.pattern; 
+            intersect.specs.push_back(newSpec);
+        }
+    }
+    
+    return intersect.specs.empty() ? 1 : 0;
+}
+
 std::shared_ptr<UpFilter> AclManager::GetUpstreamFilter(const std::string& hostName, const std::string& ipAddr, const ProdClass& want) const {
     auto filt = std::make_shared<UpFilter>();
     

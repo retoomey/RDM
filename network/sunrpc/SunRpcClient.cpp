@@ -467,4 +467,44 @@ int SunRpcClient::DisableNagles()
    return setsockopt(existing_socket_, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(on));
 }
 
+HiyaResponse SunRpcClient::SendHiya(const HiyaRequest& request, unsigned int timeoutSecs) {
+    HiyaResponse response;
+    response.statusCode = ReplyStatus::DONT_SEND;
+    response.maxHereis = 0;
+
+    if (!clnt_ && Connect() != 0) {
+        LogError("Failed to connect before sending HIYA");
+        return response;
+    }
+
+    struct timeval tv = { static_cast<long>(timeoutSecs), 0 };
+    clnt_control(clnt_, CLSET_TIMEOUT, reinterpret_cast<char*>(&tv));
+
+    ProdClass offered = request.offeredClass;
+    
+    // Perform the HIYA RPC call (Procedure 5)
+    enum clnt_stat stat = clnt_call(
+        clnt_,
+        HIYA,
+        reinterpret_cast<xdrproc_t>(xdr_net_prod_class),
+        reinterpret_cast<char*>(&offered),
+        reinterpret_cast<xdrproc_t>(xdr_net_hiya_reply),
+        reinterpret_cast<char*>(&response),
+        tv
+    );
+
+    if (stat != RPC_SUCCESS) {
+        LogError("HIYA RPC failure: {}", clnt_sperrno(stat));
+        return response;
+    }
+
+    // Automatically update the client's threshold if the server accepted
+    if (response.statusCode == ReplyStatus::OK || response.statusCode == ReplyStatus::RECLASS) {
+        max_hereis_ = response.maxHereis;
+        LogDebug("HIYA accepted. Updated max_hereis to {}", max_hereis_);
+    }
+
+    return response;
+}
+
 }
