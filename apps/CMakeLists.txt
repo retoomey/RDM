@@ -33,6 +33,16 @@ addLDMBinary(pqsend
 )
 
 # ==============================================================================
+# Executable Definition (pqbroker)
+# This is different than original ldm.  Original ldmd forked itself, but
+# spawns pqsend, pqact.  Now it spawns pqbroker for the tree of incoming
+# connection sockets.  This makes ldmd a true supervisor.
+# ==============================================================================
+addLDMBinary(pqbroker
+    SOURCES pqbroker.cpp
+)
+
+# ==============================================================================
 # Executable Definition (pqmon)
 # ==============================================================================
 # The queue health monitoring utility

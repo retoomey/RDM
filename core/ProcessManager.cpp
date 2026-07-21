@@ -112,4 +112,16 @@ pid_t ProcessManager::Reap(pid_t pid, int options, int* outStatus) {
     return wpid;
 }
 
+void ProcessManager::KillAll(int signum) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& pair : activeProcesses_) {
+        pid_t pid = pair.first;
+        if (kill(pid, signum) == 0) {
+            LogNotice("Sent signal {} to child {} ({})", signum, static_cast<long>(pid), pair.second);
+        } else {
+            LogSyserr("Failed to send signal {} to child {}", signum, static_cast<long>(pid));
+        }
+    }
+}
+
 }

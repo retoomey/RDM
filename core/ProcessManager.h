@@ -41,5 +41,7 @@ public:
 
   pid_t
   Reap(pid_t pid, int options, int * outStatus = nullptr);
+
+  void KillAll(int signum);
 };
 }

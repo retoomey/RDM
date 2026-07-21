@@ -9,6 +9,8 @@ set -e
 # path/location of your binaries.
 export BIN_DIR="$(pwd)/../BUILD/bin"
 
+export PATH="$BIN_DIR:$PATH" # Force our newly compiled binaries
+
 sandbox_ldm() {
     local test_dir="$1"
     export LDMHOME="$test_dir"

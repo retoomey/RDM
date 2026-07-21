@@ -211,25 +211,23 @@ protected:
         long maxOpen = sysconf(_SC_OPEN_MAX);
         if (maxOpen == -1) maxOpen = _POSIX_OPEN_MAX;
         unsigned maxFdCount = static_cast<unsigned>(maxOpen - 6);
-
-        auto* concreteQueue = pq_.get(); 
+        
+        auto* concreteQueue = pq_.get();
         if (!concreteQueue) {
             LogError("Fatal: Underlying product store is not a ProductQueue!");
             return EXIT_FAILURE;
         }
-
+        
         pqact::PqactContext ctx(concreteQueue, maxFdCount, processManager_);
         ctx.pipeTimeo = pipe_timeo_;
-
+        
         if (!pqact::PqactParser::Parse(activeConfigPath_, ctx, ctx.config)) {
             return EXIT_FAILURE;
         } else if (ctx.config.entries.empty()) {
             LogNotice("Configuration-file \"{}\" has no entries. You should probably not start this program instead.", activeConfigPath_);
         }
-
-        // NEW: Get our dedicated cursor
+        
         auto cursor = pq_->CreateCursor();
-
         if (toffset_ >= 0) {
             clss_.from_sec -= toffset_;
             cursor->setCursor(Timestamp(clss_.from_sec, static_cast<int32_t>(clss_.from_usec)));
@@ -237,14 +235,12 @@ protected:
             bool startAtTailEnd = true;
             clss_.from_sec = 0;
             clss_.from_usec = 0;
-
             Timestamp readTs;
             if (!os::StateFile::Read(activeConfigPath_, readTs)) {
                 LogWarning("Couldn't get insertion-time of last-processed data-product from previous session");
             } else {
                 Timestamp insertTimeTs(readTs.tv_sec, readTs.tv_usec);
                 Timestamp now_check = Timestamp::Now();
-
                 if (now_check < insertTimeTs) {
                     LogWarning("Time of last-processed data-product from previous session is in the future");
                 } else {
@@ -252,40 +248,38 @@ protected:
                     time_t tsec = insertTimeTs.tv_sec;
                     (void)std::strftime(buf, sizeof(buf), "%Y-%m-%d %T", gmtime(&tsec));
                     LogNotice("Starting from insertion-time {}.{:06} UTC", buf, static_cast<long>(insertTimeTs.tv_usec));
-                    
                     cursor->setCursor(insertTimeTs);
                     startAtTailEnd = false;
                 }
             }
-
             if (startAtTailEnd) {
                 LogNotice("Starting at tail-end of product-queue");
                 Timestamp dummy;
                 (void)cursor->setCursorToLast(clss_, dummy);
             }
         }
-
+        
         LogInfo("{}", clss_.ToString());
-
+        
         if (!activeDataDir_.empty()) {
             if (chdir(activeDataDir_.c_str()) == -1) {
                 LogSyserr("cannot chdir to {}", activeDataDir_);
                 return 4;
             }
         }
-
+        
         ProcessDummyProduct("_BEGIN_", &ctx);
-
         int exitCode = EXIT_SUCCESS;
+        
         while (!SignalManager::IsDone()) {
             if (hupped_) {
                 LogNotice("Rereading configuration file {}", activeConfigPath_);
                 (void) pqact::PqactParser::Parse(activeConfigPath_, ctx, ctx.config);
                 hupped_ = false;
             }
-
-            // NEW: Use cursor->next
+            
             int status = cursor->next(false, clss_, ProcessProduct, false, &ctx);
+            
             if (status) {
                 if (status == static_cast<int>(PqStatus::End)) {
                     LogDebug("End of Queue");
@@ -302,6 +296,7 @@ protected:
                     exitCode = EXIT_FAILURE;
                     break;
                 }
+                
                 if (SignalManager::IsDone()) break;
                 
                 struct timeval tv;
@@ -309,11 +304,12 @@ protected:
                 tv.tv_usec = 0;
                 select(0, nullptr, nullptr, nullptr, &tv);
             }
-
+            
             if (SignalManager::IsDone()) break;
+            
             while (processManager_.Reap(-1, WNOHANG) > 0);
         }
-
+        
         if (SignalManager::IsDone()) {
             if (palt_last_insertion == Timestamp::NONE) {
                 LogNotice("No product was processed");
@@ -326,7 +322,26 @@ protected:
                 }
             }
         }
+
+        // ==========================================================
+        // BULLETPROOF CLEANUP LOGIC
+        // ==========================================================
+        LogNotice("pqact shutting down: signaling EXEC and PIPE children...");
         
+        // 1. Ignore SIGTERM so pqact isn't killed while cleaning up its own mess
+        SignalManager::Ignore(SIGTERM); 
+        
+        // 2. Explicitly send SIGTERM to all detached children
+        processManager_.KillAll(SIGTERM);
+
+        // 3. Block and reap until the process manager is entirely empty
+        while (processManager_.Count() > 0) {
+            processManager_.Reap(-1, 0); 
+        }
+        
+        LogNotice("pqact shutdown complete. All children reaped.");
+        // ==========================================================
+
         ctx.fileCache->CloseAll();
         return exitCode;
     }

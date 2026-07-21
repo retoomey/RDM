@@ -292,23 +292,30 @@ bool RdmEngine::Initialize() {
 int RdmEngine::Run() {
     std::string configPath = registry::getLdmdConfigPath();
     ServerConfig config = ConfParser::Parse(configPath, ldmPort_);
+    
     if (config.allowRules.empty() && config.acceptRules.empty() &&
         config.execRules.empty() && config.requestRules.empty()) {
         LogFatal("The configuration file \"{}\" is empty", configPath);
         return EXIT_FAILURE;
     }
+    
     if (!checkOnly_) {
         auto uldb_status = static_cast<int>(uldb_.Delete(""));
         if (uldb_status && static_cast<int>(UldbStatus::EXIST) != uldb_status) return EXIT_FAILURE;
         if (uldb_.Create("", maxClients_ * 1024) != UldbStatus::SUCCESS) return EXIT_FAILURE;
         
         aclManager_ = std::make_unique<AclManager>(std::move(config.allowRules), std::move(config.acceptRules));
+        
+        // Spawn EXEC actions (like pqact)
         for (const auto& execRule : config.execRules) {
             if (processManager_.SpawnExec(execRule) < 0) return EXIT_FAILURE;
         }
+        
         auto feedCount = config.requestRules.size();
         bool nagles = disableNagles_;
         unsigned int hereis = maxHereis_;
+        
+        // Spawn upstream requesters
         for (const auto& reqRule : config.requestRules) {
             pid_t pid = processManager_.SpawnRequester(reqRule.upstreamHost, [&reqRule, feedCount, nagles, hereis]() {
                 ProdClass clss;
@@ -319,19 +326,52 @@ int RdmEngine::Run() {
             });
             if (pid < 0) return EXIT_FAILURE;
         }
+        
+        // NEW LOGIC: Spawn pqbroker if we need a listening port
         if (aclManager_->RequiresServer()) {
-            server_ = NetworkFactory::CreateServer();
-            auto handler = std::make_shared<UpstreamServerHandler>(*aclManager_, uldb_, processManager_);
-            if (server_->Start(ldmBindAddr_, ldmPort_, maxClients_, handler, processManager_) != 0) {
+            ExecRule serverRule;
+            std::string cmd = "pqbroker";
+            
+            cmd += " -P " + std::to_string(ldmPort_);
+            if (disableNagles_) cmd += " -N";
+            
+            // Forward logging level
+            if (log_is_enabled_debug) cmd += " -x";
+            else if (log_is_enabled_info) cmd += " -v";
+            
+            // Forward log destination if set
+            std::string logDest = GetOption('l');
+            if (!logDest.empty()) {
+                cmd += " -l " + logDest;
+            }
+
+            // Forward the specific queue path so ULDB shared memory syncs up!
+            std::string qPath = registry::getQueuePath();
+            if (!qPath.empty()) {
+                cmd += " -q " + qPath;
+            }
+
+            // Pass the config file down
+            cmd += " " + configPath;
+            
+            serverRule.command = Wordexp(cmd);
+            pid_t srvPid = processManager_.SpawnExec(serverRule);
+            if (srvPid < 0) {
+                LogFatal("Failed to spawn pqbroker!");
                 return EXIT_FAILURE;
             }
-        } else {
-            while (!SignalManager::IsDone() && processManager_.Count() > 0) {
-                while (Reap(-1, WNOHANG) > 0) {}
-                sleep(registry::getSystemInterval());
-            }
+        }
+
+        // ==========================================================
+        // BULLETPROOF SUPERVISOR LOOP
+        // ==========================================================
+        // Unconditionally wait here as long as we have active children
+        while (!SignalManager::IsDone() && processManager_.Count() > 0) {
+            while (Reap(-1, WNOHANG) > 0) {}
+            sleep(registry::getSystemInterval());
         }
     }
+    
     return EXIT_SUCCESS;
 }
 
