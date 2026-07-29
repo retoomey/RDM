@@ -71,9 +71,12 @@ protected:
         server_ = NetworkFactory::CreateServer();
         auto handler = std::make_shared<UpstreamServerHandler>(*aclManager, uldb_, processManager_);
 
+        int exitStatus = EXIT_SUCCESS;
+
         // Start() blocks and runs the RPC loop until SignalManager triggers shutdown
         if (server_->Start(ldmBindAddr_, ldmPort_, maxClients_, handler, processManager_) != 0) {
-            return EXIT_FAILURE;
+            LogError("Server failed to start (e.g., port already in use). Executing cleanup.");
+            exitStatus = EXIT_FAILURE;
         }
 
         // ==========================================================
@@ -82,22 +85,23 @@ protected:
         LogNotice("pqbroker shutting down: signaling children and waiting for termination...");
         
         // 1. Ignore SIGTERM so pqbroker isn't killed while cleaning up its own mess
-        SignalManager::Ignore(SIGTERM); 
+        SignalManager::Ignore(SIGTERM);
         
         // 2. Explicitly send SIGTERM to all active socket connections
         processManager_.KillAll(SIGTERM);
-
+        
         // 3. Block and reap until the process manager is entirely empty
         while (processManager_.Count() > 0) {
-            processManager_.Reap(-1, 0); 
+            processManager_.Reap(-1, 0);
         }
         
         LogNotice("pqbroker shutdown complete. All socket children reaped.");
         // ==========================================================
 
         uldb_.Close();
-        return EXIT_SUCCESS;
+        return exitStatus;
     }
+
 public:
     PqBrokerApp() : Application("The LDM Port 388 Listening Server.") {}
 };

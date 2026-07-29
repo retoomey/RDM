@@ -1,5 +1,5 @@
 /** Toomey June 2026
- * Testing raw pipeline speed, or trying to.
+ * Testing raw pipeline speed using modernized C++ condition variables.
  */
 #include "IProductStore.h"
 #include "StorageFactory.h"
@@ -13,7 +13,6 @@
 #include <atomic>
 #include <cstring>
 #include <unistd.h>
-#include <signal.h>
 
 using namespace rdm;
 
@@ -39,16 +38,15 @@ int main(int argc, char* argv[]) {
     LogInitialize(argv[0]);
     log_set_level(LOG_LEVEL_ERROR);
     
-    if (argc < 6) {
-        std::cerr << "Usage: testPipeline <up.pq> <down.pq> <up_pid> <iterations> <payload_size_kb>\n";
+    if (argc < 5) {
+        std::cerr << "Usage: testPipeline <up.pq> <down.pq> <iterations> <payload_size_kb>\n";
         return 1;
     }
     
     const char* upQueuePath = argv[1];
     const char* downQueuePath = argv[2];
-    pid_t upPid = std::stoi(argv[3]);
-    const int ITERATIONS = std::stoi(argv[4]);
-    const size_t PAYLOAD_SIZE_KB = std::stoul(argv[5]);
+    const int ITERATIONS = std::stoi(argv[3]);
+    const size_t PAYLOAD_SIZE_KB = std::stoul(argv[4]);
     const size_t PAYLOAD_SIZE_BYTES = PAYLOAD_SIZE_KB * 1024;
     
     std::string dynamicPayload(PAYLOAD_SIZE_BYTES, 'A');
@@ -75,11 +73,14 @@ int main(int argc, char* argv[]) {
         auto cursor = downQueue->CreateCursor();
         cursor->setCursor(Timestamp::ZERO);
         
+        uint64_t lastVersion = downQueue->getDataVersion();
         int expected = ITERATIONS;
+
         while (!all_products_received) {
             int status = cursor->sequence(Match::GreaterThan, clss, watch_callback, &expected);
             if (status == -1) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                downQueue->waitForData(lastVersion, 1);
+                lastVersion = downQueue->getDataVersion();
             } else if (status > 0) {
                 std::cerr << "Watcher encountered an error: " << status << "\n";
                 break;
@@ -99,8 +100,7 @@ int main(int argc, char* argv[]) {
             if (current == last_count && current < ITERATIONS) {
                 timeouts++;
                 if (timeouts >= 3) {
-                    std::cout << "[Monitor] Pipe idle detected. Sending explicit SIGCONT to upstream daemon (" << upPid << ")\n";
-                    ::kill(upPid, SIGCONT);
+                    std::cout << "[Monitor] Pipe idle detected. Waiting for network pipeline to catch up...\n";
                     timeouts = 0;
                 }
             } else {
@@ -140,12 +140,13 @@ int main(int argc, char* argv[]) {
         }
         
         if (i % 50 == 0) {
-            ::kill(upPid, SIGCONT);
-            std::this_thread::sleep_for(std::chrono::microseconds(250));
+            upQueue->notifyReaders();
+            // Restored the pacing to prevent local TCP loopback flooding
+            //std::this_thread::sleep_for(std::chrono::microseconds(250)); 
         }
     }
     
-    ::kill(upPid, SIGCONT);
+    upQueue->notifyReaders();
     
     watcher.join();
     monitor.join();

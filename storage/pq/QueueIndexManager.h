@@ -7,11 +7,12 @@
 #include <functional>
 
 #include <sys/types.h>
+#include <pthread.h>
 
 namespace rdm {
 
 constexpr size_t PQ_MAGIC   = 0x50515545;
-constexpr size_t PQ_VERSION = 7;
+constexpr size_t PQ_VERSION = 100; // High number to avoid possible conflict with newer ldm queues
 constexpr unsigned WRITE_COUNT_MAGIC = 0x50515545;
 constexpr unsigned MAX_WRITE_COUNT   = ~0u;
 
@@ -46,6 +47,11 @@ struct pqctl {
   unsigned       metrics_magic_2;
   off_t          mvrtSize;
   size_t         mvrtSlots;
+
+  // Shared modern sync vs signals
+  pthread_mutex_t data_mutex;
+  pthread_cond_t  data_cond;
+  uint64_t        data_version; // Monotonic sequence counter for lost-wakeup prevention
 };
 
 namespace rdm {

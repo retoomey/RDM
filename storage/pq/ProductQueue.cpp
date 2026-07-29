@@ -503,6 +503,8 @@ int ProductQueue::commitEntry(const pqe_index& index, std::unique_ptr<MappedRegi
                     QueueMetrics(indexManager_).MarkMostRecent();
                     pqe_count_--;
                     status = 0;
+
+                    //notifyReaders(); Or do we let clients batch things
                 }
             }
         }
@@ -717,6 +719,76 @@ int ProductQueue::clearWriteCount() {
 
 std::unique_ptr<IQueueCursor> ProductQueue::CreateCursor() { 
     return std::make_unique<QueueCursor>(*this); 
+}
+
+#if 0
+int ProductQueue::notifyReaders() {
+    if (!file_.isOpen() || !indexManager_.GetControl()) return EINVAL;
+    pqctl* ctl = indexManager_.GetControl();
+    
+    int status = pthread_mutex_lock(&ctl->data_mutex);
+    if (status == EOWNERDEAD) {
+        pthread_mutex_consistent(&ctl->data_mutex);
+    }
+    
+    ctl->data_version++; // Increment generation count
+    pthread_cond_broadcast(&ctl->data_cond);
+    pthread_mutex_unlock(&ctl->data_mutex);
+    return 0;
+}
+#endif
+
+int ProductQueue::notifyReaders() {
+    if (!file_.isOpen() || !indexManager_.GetControl()) return EINVAL;
+    
+    pqctl* ctl = indexManager_.GetControl();
+    
+    int status = pthread_mutex_lock(&ctl->data_mutex);
+    if (status == EOWNERDEAD) {
+        // The previous owner died while holding the lock. 
+        // We successfully acquired it, but must mark it consistent before proceeding.
+        pthread_mutex_consistent(&ctl->data_mutex);
+    } else if (status != 0) {
+        // A fatal lock error occurred (e.g., ENOTRECOVERABLE, EINVAL).
+        // Bail out immediately to avoid undefined behavior on broadcast/unlock.
+        return status;
+    }
+
+    // Safely inside the lock boundary
+    ctl->data_version++;
+    pthread_cond_broadcast(&ctl->data_cond);
+    
+    pthread_mutex_unlock(&ctl->data_mutex);
+    
+    return 0;
+}
+
+uint64_t ProductQueue::getDataVersion() {
+    if (!file_.isOpen() || !indexManager_.GetControl()) return 0;
+    return indexManager_.GetControl()->data_version;
+}
+
+int ProductQueue::waitForData(uint64_t lastSeenVersion, unsigned int timeoutSecs) {
+    if (!file_.isOpen() || !indexManager_.GetControl()) return EINVAL;
+    pqctl* ctl = indexManager_.GetControl();
+
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    ts.tv_sec += timeoutSecs;
+
+    int lockStatus = pthread_mutex_lock(&ctl->data_mutex);
+    if (lockStatus == EOWNERDEAD) {
+        pthread_mutex_consistent(&ctl->data_mutex);
+    }
+
+    int status = 0;
+    // Predicate check: Only sleep if no new data was committed since lastSeenVersion
+    if (ctl->data_version == lastSeenVersion) {
+        status = pthread_cond_timedwait(&ctl->data_cond, &ctl->data_mutex, &ts);
+    }
+
+    pthread_mutex_unlock(&ctl->data_mutex);
+    return status;
 }
 
 }

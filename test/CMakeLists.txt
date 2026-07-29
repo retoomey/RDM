@@ -5,8 +5,11 @@ find_path(CUNIT_INCLUDE_DIRS NAMES CUnit/CUnit.h)
 find_library(CUNIT_LIBRARIES NAMES cunit)
 
 if(NOT CUNIT_INCLUDE_DIRS OR NOT CUNIT_LIBRARIES)
-    message(FATAL_ERROR "CUnit not found! Ensure CUnit-devel is installed.")
+    message(WARNING "CUnit not found. Skipping the build of the test suite. Ensure CUnit-devel is installed if you wish to run the ctest compiled tests.  The testall.sh should still work.")
+    return()
 endif()
+
+message(STATUS "Found CUnit: ${CUNIT_LIBRARIES}")
 
 # 2. Create a helper function to automatically name and link tests
 function(addLDMTest)

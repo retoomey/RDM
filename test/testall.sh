@@ -8,9 +8,8 @@ set -e
 
 # Define the array of test scripts
 scripts=(
-    "./testfeedme.sh"
     "./testldmping.sh"
-    "./testnotifyme.sh"
+    "./testrdmpull.sh"
     "./testpqact.sh"
     "./testpqcat.sh"
     "./testinfofile.sh"
@@ -23,6 +22,33 @@ scripts=(
     "./testpqsend.sh"
     "./testpipeline.sh"
 )
+
+# ==============================================================================
+# Pre-Flight Environment Check
+# ==============================================================================
+REQUIRED_CMDS=("find" "diff")
+MISSING_CMDS=()
+
+for cmd in "${REQUIRED_CMDS[@]}"; do
+    if ! command -v "$cmd" &> /dev/null; then
+        MISSING_CMDS+=("$cmd")
+    fi
+done
+
+if [ ${#MISSING_CMDS[@]} -ne 0 ]; then
+    echo "======================================================="
+    echo " 🚨 FATAL: MISSING SYSTEM UTILITIES 🚨"
+    echo "======================================================="
+    echo "The test suite requires the following missing commands:"
+    for cmd in "${MISSING_CMDS[@]}"; do
+        echo "  - $cmd"
+    done
+    echo ""
+    echo "Please install the missing packages (e.g., 'dnf install findutils diffutils')"
+    echo "(many containers don't have these by default)"
+    echo "======================================================="
+    exit 1
+fi
 
 echo "Starting test suite..."
 echo "--------------------------------------"

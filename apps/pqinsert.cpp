@@ -125,8 +125,7 @@ protected:
 
             int status = pq_->insert(prod);
             if (status == 0) {
-                // Signal local daemon process group that a product was inserted
-                (void)kill(0, SIGCONT);
+                NotifyQueue();
 
                 if (verbose_) {
                     LogInfo("Successfully inserted product: ID={}, Size={} bytes", prod.info.ident, prod.info.sz);

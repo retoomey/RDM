@@ -173,5 +173,14 @@ public:
   clearWriteCount() = 0;
   virtual int
   getWriteCount(size_t& write_count) = 0;
+
+  // c++ sync vs SIGCONT
+  virtual uint64_t
+  getDataVersion() = 0;
+  virtual int
+  waitForData(uint64_t lastSeenVersion, unsigned int timeoutSecs) = 0;
+
+  virtual int
+  notifyReaders() = 0;
 };
 }

@@ -219,8 +219,7 @@ protected:
                     }
                     
                     // Sleep until new products arrive
-                    struct timeval tv = { static_cast<time_t>(interval_), 0 };
-                    select(0, nullptr, nullptr, nullptr, &tv);
+                    WaitOnQueue(interval_);
                 } else if (status == EAGAIN || status == EACCES) {
                     LogDebug("Queue locked, retrying...");
                     usleep(100000); // 100ms

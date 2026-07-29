@@ -82,7 +82,7 @@ $BIN_DIR/pqinsert -x -l "$UP_DIR/var/logs/pqinsert.log" \
           "$DUMMY_XML"
 
 # Manually wake up the upstream feeder process group so it sees the new product instantly
-kill -CONT -$UP_PID
+wake_ldm_daemon $UP_PID
 
 # Give the network transfer and downstream pqact a moment to process
 sleep 3
@@ -105,10 +105,8 @@ fi
 
 # 10. Tear down the daemons safely
 echo "=== Shutting down LDMs ==="
-#kill -TERM $DOWN_PID $UP_PID
-kill -TERM -$DOWN_PID -$UP_PID 2>/dev/null || true
-wait $DOWN_PID 2>/dev/null || true
-wait $UP_PID 2>/dev/null || true
+stop_ldm_daemon $DOWN_PID
+stop_ldm_daemon $UP_PID
 
 if [ "$PASSED" = true ]; then
     echo "======================================================="

@@ -47,19 +47,19 @@ sleep 4
 
 echo "=== [Phase 2] Inserting Product 1 ==="
 $BIN_DIR/pqinsert -q "$UP_DIR/var/queues/up.pq" -f EXP -p "test_state_1.xml" "$DUMMY_1"
-kill -CONT -$UP_PID 2>/dev/null || true
+wake_ldm_daemon $UP_PID
 sleep 4
 
 if [ ! -f "$DOWN_DIR/var/data/test_state_1.xml" ]; then
     echo "❌ FAILURE: Downstream never received Product 1!"
-    kill -TERM -$DOWN_PID -$UP_PID 2>/dev/null || true
+    stop_ldm_daemon $DOWN_PID
+    stop_ldm_daemon $UP_PID
     exit 1
 fi
 echo "✅ Verified: Product 1 received downstream."
 
 echo "=== [Phase 3] Simulating Downstream Outage ==="
-kill -TERM -$DOWN_PID 2>/dev/null || true
-wait $DOWN_PID 2>/dev/null || true
+stop_ldm_daemon $DOWN_PID
 
 # Look for any file ending in .info within your test target directory
 #STATE_FILE=$(ls "$DOWN_DIR/var/run"/.*.info 2>/dev/null | head -n 1)
@@ -67,14 +67,14 @@ STATE_FILE=$(ls "$DOWN_DIR/var/run"/*_*.info 2>/dev/null | head -n 1)
 
 if [ -z "$STATE_FILE" ]; then
     echo "❌ FAILURE: No state file was generated upon shutdown!"
-    kill -TERM -$UP_PID 2>/dev/null || true
+    stop_ldm_daemon $UP_PID
     exit 1
 fi
 echo "✅ Verified: State file generated during outage ($STATE_FILE)."
 
 echo "=== [Phase 4] Inserting Product 2 (While Downstream is DEAD) ==="
 $BIN_DIR/pqinsert -q "$UP_DIR/var/queues/up.pq" -f EXP -p "test_state_2.xml" "$DUMMY_2"
-kill -CONT -$UP_PID 2>/dev/null || true
+wake_ldm_daemon $UP_PID
 sleep 2
 
 echo "=== [Phase 5] Restarting Downstream to Resume Feed ==="
@@ -105,9 +105,8 @@ else
 fi
 
 echo "=== Shutting down LDMs ==="
-kill -TERM -$DOWN_PID_2 -$UP_PID 2>/dev/null || true
-wait $DOWN_PID_2 2>/dev/null || true
-wait $UP_PID 2>/dev/null || true
+stop_ldm_daemon $DOWN_PID_2
+stop_ldm_daemon $UP_PID
 
 if [ "$PASSED" = true ]; then
     echo "======================================================="

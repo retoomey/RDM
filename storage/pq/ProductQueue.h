@@ -54,9 +54,6 @@ private:
   std::atomic<long> locked_count_{ 0 };
   std::unordered_map<off_t, std::unique_ptr<MappedRegion> > activeUserRegions_;
   int pflags_{ 0 };
-//  size_t pagesz_{ 0 };
-//  int fd_{ -1 };
-//  std::string pathname_;
   PqFile file_;
   off_t dataOffset_{ 0 };
   off_t indexOffset_{ 0 };
@@ -251,6 +248,10 @@ public:
    */
   int
   getWriteCount(size_t& count) override;
+
+  uint64_t getDataVersion() override;
+  int waitForData(uint64_t lastSeenVersion, unsigned int timeoutSecs) override;
+  int notifyReaders() override;
 
   /*
    * Sets to zero the number of pq_open()s for writing outstanding on the

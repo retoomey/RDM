@@ -142,10 +142,7 @@ protected:
 
             if (interval_ == 0) break;
             
-            struct timeval tv;
-            tv.tv_sec = interval_;
-            tv.tv_usec = 0;
-            select(0, nullptr, nullptr, nullptr, &tv);
+            WaitOnQueue(interval_);
         }
 
         return EXIT_SUCCESS;

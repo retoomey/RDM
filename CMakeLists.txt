@@ -139,9 +139,6 @@ target_include_directories(rdmcore PRIVATE
     ${XML2_INCLUDE_DIRS} 
 )
 
-#target_include_directories(rdmcore PUBLIC
-#    ${CMAKE_CURRENT_SOURCE_DIR}/core
-#)
 target_include_directories(rdmcore PUBLIC
     $<BUILD_INTERFACE:${RDM_SOURCE_DIR}/core>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/rdm>
@@ -157,6 +154,7 @@ target_link_libraries(rdmcore PRIVATE
     pthread                
     xml2                   
     spdlog::spdlog
+    stdc++fs           # Needed for GCC 8 filesystem support (Rocky 8, etc. )
 )
 
 # ==============================================================================

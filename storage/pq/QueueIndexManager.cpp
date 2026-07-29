@@ -33,6 +33,22 @@ void QueueIndexManager::InitializeControlHeader(void* ctlRegion, off_t dataOffse
     ctl->metrics_magic_2 = METRICS_MAGIC_2;
     ctl->mvrtSize = -1;
     ctl->mvrtSlots = 0;
+
+    pthread_mutexattr_t mattr;
+    pthread_mutexattr_init(&mattr);
+    pthread_mutexattr_setpshared(&mattr, PTHREAD_PROCESS_SHARED);
+    pthread_mutexattr_setrobust(&mattr, PTHREAD_MUTEX_ROBUST); // Handle crashed processes
+    pthread_mutex_init(&ctl->data_mutex, &mattr);
+    pthread_mutexattr_destroy(&mattr);
+
+    pthread_condattr_t cattr;
+    pthread_condattr_init(&cattr);
+    pthread_condattr_setpshared(&cattr, PTHREAD_PROCESS_SHARED);
+    pthread_condattr_setclock(&cattr, CLOCK_MONOTONIC); // Immune to NTP time jumps
+    pthread_cond_init(&ctl->data_cond, &cattr);
+    pthread_condattr_destroy(&cattr);
+
+    ctl->data_version = 0;
 }
 
 int QueueIndexManager::ValidateControlHeader(const void* ctlRegion, size_t regionSize, size_t pageSize,
@@ -44,8 +60,9 @@ int QueueIndexManager::ValidateControlHeader(const void* ctlRegion, size_t regio
         LogError("Not a product queue (bad magic number)");
         return EINVAL;
     }
-    if (ctl->version != PQ_VERSION && ctl->version != 7) {
-        LogError("Product queue is version {} instead of expected version {}", ctl->version, PQ_VERSION);
+    if (ctl->version != PQ_VERSION) {
+        LogError("Queue version mismatch: found {}, expected {}. Please recreate your queue using pqcreate.", 
+                 ctl->version, PQ_VERSION);
         return EINVAL;
     }
     if (ctl->datao % pageSize != 0) {

@@ -290,13 +290,14 @@ bool RdmEngine::Initialize() {
 }
 
 int RdmEngine::Run() {
+    int exitStatus = EXIT_SUCCESS;
     std::string configPath = registry::getLdmdConfigPath();
     ServerConfig config = ConfParser::Parse(configPath, ldmPort_);
     
     if (config.allowRules.empty() && config.acceptRules.empty() &&
         config.execRules.empty() && config.requestRules.empty()) {
         LogFatal("The configuration file \"{}\" is empty", configPath);
-        return EXIT_FAILURE;
+        return EXIT_FAILURE; // Safe to return here: no resources allocated yet
     }
     
     if (!checkOnly_) {
@@ -306,9 +307,14 @@ int RdmEngine::Run() {
         
         aclManager_ = std::make_unique<AclManager>(std::move(config.allowRules), std::move(config.acceptRules));
         
+        bool spawnSuccess = true;
+
         // Spawn EXEC actions (like pqact)
         for (const auto& execRule : config.execRules) {
-            if (processManager_.SpawnExec(execRule) < 0) return EXIT_FAILURE;
+            if (processManager_.SpawnExec(execRule) < 0) {
+                spawnSuccess = false;
+                break;
+            }
         }
         
         auto feedCount = config.requestRules.size();
@@ -316,63 +322,85 @@ int RdmEngine::Run() {
         unsigned int hereis = maxHereis_;
         
         // Spawn upstream requesters
-        for (const auto& reqRule : config.requestRules) {
-            pid_t pid = processManager_.SpawnRequester(reqRule.upstreamHost, [&reqRule, feedCount, nagles, hereis]() {
-                ProdClass clss;
-                clss.from_sec = 0; clss.from_usec = 0;
-                clss.to_sec = 0x7fffffff; clss.to_usec = 999999;
-                clss.specs.push_back({reqRule.feedtype, reqRule.pattern});
-                requester_exec(reqRule.upstreamHost.c_str(), reqRule.port, clss, 1, feedCount, nagles, hereis);
-            });
-            if (pid < 0) return EXIT_FAILURE;
+        if (spawnSuccess) {
+            for (const auto& reqRule : config.requestRules) {
+                pid_t pid = processManager_.SpawnRequester(reqRule.upstreamHost, [&reqRule, feedCount, nagles, hereis]() {
+                    ProdClass clss;
+                    clss.from_sec = 0; clss.from_usec = 0;
+                    clss.to_sec = 0x7fffffff; clss.to_usec = 999999;
+                    clss.specs.push_back({reqRule.feedtype, reqRule.pattern});
+                    requester_exec(reqRule.upstreamHost.c_str(), reqRule.port, clss, 1, feedCount, nagles, hereis);
+                });
+                if (pid < 0) {
+                    spawnSuccess = false;
+                    break;
+                }
+            }
         }
         
-        // NEW LOGIC: Spawn pqbroker if we need a listening port
-        if (aclManager_->RequiresServer()) {
+        // Spawn pqbroker if we need a listening port
+        if (spawnSuccess && aclManager_->RequiresServer()) {
             ExecRule serverRule;
             std::string cmd = "pqbroker";
             
             cmd += " -P " + std::to_string(ldmPort_);
             if (disableNagles_) cmd += " -N";
             
-            // Forward logging level
             if (log_is_enabled_debug) cmd += " -x";
             else if (log_is_enabled_info) cmd += " -v";
             
-            // Forward log destination if set
             std::string logDest = GetOption('l');
             if (!logDest.empty()) {
                 cmd += " -l " + logDest;
             }
 
-            // Forward the specific queue path so ULDB shared memory syncs up!
             std::string qPath = registry::getQueuePath();
             if (!qPath.empty()) {
                 cmd += " -q " + qPath;
             }
 
-            // Pass the config file down
             cmd += " " + configPath;
             
             serverRule.command = Wordexp(cmd);
             pid_t srvPid = processManager_.SpawnExec(serverRule);
             if (srvPid < 0) {
                 LogFatal("Failed to spawn pqbroker!");
-                return EXIT_FAILURE;
+                spawnSuccess = false;
+            }
+        }
+
+        if (!spawnSuccess) {
+            LogError("Startup aborted due to spawn failure. Initiating teardown.");
+            exitStatus = EXIT_FAILURE;
+        } else {
+            // ==========================================================
+            // BULLETPROOF SUPERVISOR LOOP
+            // ==========================================================
+            // Unconditionally wait here as long as we have active children
+            while (!SignalManager::IsDone() && processManager_.Count() > 0) {
+                while (Reap(-1, WNOHANG) > 0) {}
+                sleep(registry::getSystemInterval());
             }
         }
 
         // ==========================================================
-        // BULLETPROOF SUPERVISOR LOOP
+        // BULLETPROOF CLEANUP LOGIC
         // ==========================================================
-        // Unconditionally wait here as long as we have active children
-        while (!SignalManager::IsDone() && processManager_.Count() > 0) {
-            while (Reap(-1, WNOHANG) > 0) {}
-            sleep(registry::getSystemInterval());
+        LogNotice("RdmEngine shutting down: signaling children and waiting for termination...");
+        SignalManager::Ignore(SIGTERM);
+        
+        // Terminate tracked children
+        processManager_.KillAll(SIGTERM);
+        
+        // Ensure all tracked processes are cleanly reaped before exiting
+        while (processManager_.Count() > 0) {
+            Reap(-1, 0); // Using RdmEngine::Reap so child crash signals are still logged
         }
+        LogNotice("RdmEngine tracked child shutdown complete.");
+        // ==========================================================
     }
     
-    return EXIT_SUCCESS;
+    return exitStatus;
 }
 
 } // namespace rdm

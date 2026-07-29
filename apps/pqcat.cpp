@@ -164,8 +164,9 @@ protected:
                 return EXIT_FAILURE;
             }
             if (interval_ == 0) break;
-            struct timeval tv = { static_cast<time_t>(interval_), 0 };
-            select(0, nullptr, nullptr, nullptr, &tv);
+
+            // Sleep until event
+            WaitOnQueue(interval_);
         }
 
         if (queueSanityCheck_) {

@@ -52,7 +52,7 @@ if $BIN_DIR/ldmping -v -i 0 -P 6006 -h ::1 > "$PING_LOG" 2>&1; then
 else
     echo "❌ FAILURE: ldmping failed over IPv6."
     cat "$PING_LOG"
-    kill -TERM $UP_PID
+    stop_ldm_daemon $UP_PID
     exit 1
 fi
 
@@ -71,7 +71,7 @@ $BIN_DIR/pqinsert -x -l "$UP_DIR/var/logs/pqinsert.log" \
           -p "test_ipv6_weather.xml" \
           "$DUMMY_XML"
 
-kill -CONT -$UP_PID
+wake_ldm_daemon $UP_PID
 sleep 3
 
 echo "=== Verifying IPv6 RPC Transfer Output ==="
@@ -89,9 +89,8 @@ else
 fi
 
 echo "=== Shutting down LDMs ==="
-kill -TERM -$DOWN_PID -$UP_PID 2>/dev/null || true
-wait $DOWN_PID 2>/dev/null || true
-wait $UP_PID 2>/dev/null || true
+stop_ldm_daemon $DOWN_PID
+stop_ldm_daemon $UP_PID
 
 if [ "$PASSED" = true ]; then
     echo "======================================================="

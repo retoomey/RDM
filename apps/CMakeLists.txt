@@ -50,12 +50,6 @@ addLDMBinary(pqmon
     SOURCES pqmon.cpp
 )
 
-# ==============================================================================
-# Executable Definition (feedme)
-# ==============================================================================
-addLDMBinary(feedme    
-    SOURCES feedme.cpp
-)
 
 # ==============================================================================
 # Executable Definition (uldbutil)
@@ -72,11 +66,20 @@ addLDMBinary(ldmping
 )
 
 # ==============================================================================
-# Executable Definition (notifyme)
+# Executable Definition (rdmpull) Combine feedme and notifyme
 # ==============================================================================
-addLDMBinary(notifyme  
-    SOURCES notifyme.cpp
+addLDMBinary(rdmpull  
+    SOURCES rdmpull.cpp
 )
+
+# We should just have a single binary.  One does full data, the other
+# only metadata.
+#addLDMBinary(notifyme  
+#    SOURCES notifyme.cpp
+#)
+#addLDMBinary(feedme    
+#    SOURCES feedme.cpp
+#)
 
 # ==============================================================================
 # Executable Definition (pqcheck)
