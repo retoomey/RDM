@@ -20,6 +20,8 @@ public:
     int DisableNagles() override;
 
     void SetMaxHereIs(unsigned int max_hereis) override { max_hereis_ = max_hereis; }
+    void SetProtocolVersion(unsigned long version) override { protocol_version_ = version; }
+
     int Connect() override;
     int SendProduct(const Product& product) override;
     int SendNotification(const ProdInfo& info) override;
@@ -40,6 +42,12 @@ private:
     bool has_remote_addr_{false};
     CLIENT* clnt_{nullptr};
     unsigned int max_hereis_{16384}; 
+
+    // Default to 6.
+    unsigned long protocol_version_{6};
+
+    // Helper for debugging XDR payloads over the wire
+    void DebugOutboundRpc(unsigned long procNum, xdrproc_t xdr_proc, void* arg_ptr) const;
 
     template <typename ArgType, typename ResType>
     int CallRpc(unsigned long procNum, xdrproc_t inProc, ArgType* inArg,

@@ -171,7 +171,8 @@ protected:
     bool Initialize() override {
         if (!NetworkApp::Initialize()) return false;
 
-        LogNotice("Starting Up: {}", remoteHost_);
+        //LogNotice("Starting Up: {}", remoteHost_);
+        LogNotice("Starting Up: {}: {}", remoteHost_, clss_.ToString());
 
         if (totalTimeo_ > 0) {
             struct sigaction sa;
@@ -205,11 +206,13 @@ protected:
             req.requestedClass = clss_;
 
             FeedResponse resp = client->SubscribeAndListen(req, handler, timeo_);
-
-            if (resp.statusCode != ReplyStatus::OK) {
-                LogError("Pull failed: {}", client->GetLastError());
+            if (resp.statusCode == ReplyStatus::SHUTTING_DOWN) {
+              LogError("Access denied by upstream LDM: {}", client->GetLastError());
+              client->Disconnect();
+              break;
+            } else if (resp.statusCode != ReplyStatus::OK) {
+              LogError("Pull failed: {}", client->GetLastError());   // "FEEDME failed" / "NOTIFYME failed" in the other two
             }
-
             client->Disconnect();
             if (SignalManager::IsDone()) break;
             sleep(10);

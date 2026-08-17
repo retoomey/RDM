@@ -160,12 +160,15 @@ bool_t xdr_net_prod_class(XDR* xdrs, ProdClass* clss) {
 bool_t xdr_net_feedpar(XDR* xdrs, FeedParNet* fpar) {
     if (xdrs->x_op == XDR_FREE) return TRUE;
 
+#if 0
     bool_t is_present = TRUE;
     if (!xdr_bool(xdrs, &is_present)) return FALSE;
 
     if (is_present) {
         if (!xdr_net_prod_class(xdrs, &fpar->clss)) return FALSE;
     }
+#endif
+    if (!xdr_net_prod_class(xdrs, &fpar->clss)) return FALSE;
 
     if (!xdr_u_int(xdrs, &fpar->max_hereis)) return FALSE;
 
@@ -230,12 +233,15 @@ bool_t xdr_net_hiya_reply(XDR* xdrs, HiyaResponse* reply) {
 bool_t xdr_net_comingsoon_args(XDR* xdrs, ComingSoonArgsNet* args) {
     if (xdrs->x_op == XDR_FREE) return TRUE;
 
+#if 0
     bool_t is_present = TRUE;
     if (!xdr_bool(xdrs, &is_present)) return FALSE;
 
     if (is_present) {
         if (!xdr_net_prod_info(xdrs, &args->info)) return FALSE;
     }
+#endif
+    if (!xdr_net_prod_info(xdrs, &args->info)) return FALSE;
 
     if (!xdr_u_int(xdrs, &args->pktsz)) return FALSE;
 
@@ -251,17 +257,50 @@ bool_t xdr_net_datapkt(XDR* xdrs, DataPktNet* pkt) {
         return TRUE;
     }
 
+#if 0
     bool_t is_present = TRUE;
     if (!xdr_bool(xdrs, &is_present)) return FALSE;
 
     if (is_present) {
         if (!xdr_opaque(xdrs, reinterpret_cast<char*>(pkt->signaturep), 16)) return FALSE;
     }
+#endif
+    if (!xdr_opaque(xdrs, reinterpret_cast<char*>(pkt->signaturep), 16)) return FALSE;
 
     if (!xdr_u_int(xdrs, &pkt->pktnum)) return FALSE;
     if (!xdr_bytes(xdrs, &pkt->dbuf_val, &pkt->dbuf_len, ~0u)) return FALSE;
 
     return TRUE;
 }
+
+#if 0
+bool_t xdr_net_ldm5_reply(XDR* xdrs, FeedResponse* reply) {
+    if (xdrs->x_op == XDR_FREE) return TRUE;
+    
+    int code;
+    if (xdrs->x_op == XDR_ENCODE) {
+        code = static_cast<int>(reply->statusCode);
+    }
+    
+    // Attempt to read the first 4 bytes (the status enum)
+    if (!xdr_enum(xdrs, reinterpret_cast<enum_t*>(&code))) {
+        LogError("INBOUND DECODE FAILED: Could not read reply code. Buffer empty or socket dropped.");
+        return FALSE;
+    }
+    
+    if (xdrs->x_op == XDR_DECODE) {
+        LogError("INBOUND DECODE SUCCESS: Received status code %d from server", code);
+        reply->statusCode = static_cast<ReplyStatus>(code);
+    }
+    
+    if (code == static_cast<int>(ReplyStatus::RECLASS)) {
+        if (!xdr_net_prod_class(xdrs, &reply->allowedClass)) {
+            LogError("INBOUND DECODE FAILED: Failed to parse RECLASS ProdClass payload.");
+            return FALSE;
+        }
+    }
+    return TRUE;
+}
+#endif
 
 }

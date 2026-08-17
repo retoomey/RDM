@@ -138,7 +138,7 @@ addLDMTest(SOURCES testAutoShifter.cpp)
 # Test pipeline speed (from testpipeline.sh)
 #addLDMTest(SOURCES testPipeline.cpp)
 add_executable(testPipeline testPipeline.cpp)
-target_link_libraries(testPipeline PRIVATE rdmcore)
+target_link_libraries(testPipeline PRIVATE rdmcore Threads::Threads)
 
 # Extreme Concurrency Stress Test
 addLDMTest(SOURCES testPQConcurrency.cpp)

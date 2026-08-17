@@ -81,10 +81,10 @@ int SunRpcClient::Connect() {
         nb.len = actual_len;
         nb.buf = &remote_addr_;
 
-        clnt_ = clnt_vc_create(existing_socket_, &nb, LDM_PROG, SIX, 262216, 0);
+        clnt_ = clnt_vc_create(existing_socket_, &nb, LDM_PROG, protocol_version_, 262216, 0);
         if (clnt_ == nullptr) {
             struct sockaddr_in* sin = reinterpret_cast<struct sockaddr_in*>(&remote_addr_);
-            clnt_ = clnttcp_create(sin, LDM_PROG, SIX, &existing_socket_, 262216, 0);
+            clnt_ = clnttcp_create(sin, LDM_PROG, protocol_version_, &existing_socket_, 262216, 0);
         }
         
         if (clnt_ == nullptr) return -1;
@@ -155,12 +155,12 @@ int SunRpcClient::Connect() {
         nb.len = addrLen;
         nb.buf = &addrStorage;
 
-        clnt_ = clnt_vc_create(sck, &nb, LDM_PROG, SIX, 0, 0);
+        clnt_ = clnt_vc_create(sck, &nb, LDM_PROG, protocol_version_, 0, 0);
         if (!clnt_) {
             struct sockaddr_in dummy{};
             dummy.sin_family = AF_INET;
             dummy.sin_port = htons(target_.GetPort());
-            clnt_ = clnttcp_create(&dummy, LDM_PROG, SIX, &sck, 0, 0);
+            clnt_ = clnttcp_create(&dummy, LDM_PROG, protocol_version_, &sck, 0, 0);
         }
 
         if (clnt_) {
@@ -380,9 +380,9 @@ FeedResponse SunRpcClient::SubscribeAndListen(const FeedRequest& request, std::s
         SVCXPRT* xprt = svcfd_create(sd, 0, 262144);
         
         if (xprt != nullptr) {
-            svc_unregister(LDM_PROG, SIX);
+            svc_unregister(LDM_PROG, protocol_version_);
             int loop_status = 0;
-            if (svc_register(xprt, LDM_PROG, SIX, reinterpret_cast<void (*)(struct svc_req*, SVCXPRT*)>(client_dispatcher_6), 0)) {
+            if (svc_register(xprt, LDM_PROG, protocol_version_, reinterpret_cast<void (*)(struct svc_req*, SVCXPRT*)>(client_dispatcher_6), 0)) {
                 
                 tl_client_handler = handler;
                 tl_client_peer.hostname = target_.GetHost();
@@ -442,7 +442,7 @@ FeedResponse SunRpcClient::SubscribeAndListen(const FeedRequest& request, std::s
             } else {
                 LogError("Failed to register dispatch routine for socket {}", sd);
             }
-            svc_unregister(LDM_PROG, SIX);
+            svc_unregister(LDM_PROG, protocol_version_);
             //svc_destroy(xprt);
             if (loop_status != ECONNRESET) { // avoid double free.  We need RAII badly
                 svc_destroy(xprt);
@@ -458,6 +458,31 @@ FeedResponse SunRpcClient::SubscribeAndListen(const FeedRequest& request, std::s
     }
     
     return response;
+}
+
+void SunRpcClient::DebugOutboundRpc(unsigned long procNum, xdrproc_t xdr_proc, void* arg_ptr) const {
+    char debug_buf[2048];
+    XDR debug_xdr;
+    xdrmem_create(&debug_xdr, debug_buf, sizeof(debug_buf), XDR_ENCODE);
+    
+    if (xdr_proc(&debug_xdr, arg_ptr)) {
+        unsigned int len = xdr_getpos(&debug_xdr);
+        std::string hex_str;
+        for (unsigned int i = 0; i < len; i++) {
+            char hb[4];
+            snprintf(hb, sizeof(hb), "%02x ", static_cast<unsigned char>(debug_buf[i]));
+            hex_str += hb;
+        }
+        LogError("--------------------------------------------------");
+        LogError("PROTOCOL VERSION: {}", protocol_version_);
+        LogError("PROCEDURE NUM   : {}", procNum);
+        LogError("PAYLOAD SIZE    : {} bytes", len);
+        LogError("RAW HEX DUMP    : {}", hex_str.c_str());
+        LogError("--------------------------------------------------");
+    } else {
+        LogError("DEBUG ENCODE FAILED!");
+    }
+    xdr_destroy(&debug_xdr);
 }
 
 int SunRpcClient::DisableNagles()

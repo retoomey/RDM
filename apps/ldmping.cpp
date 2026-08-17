@@ -41,23 +41,28 @@ private:
     unsigned int timeo_{10};
     unsigned int interval_{0};
     bool verbose_{false};
+    mutable bool labelPrinted_{false};
     std::vector<RemoteTarget> targets_;
 
-    void print_label() const {
-        LogInfo("{:>10} {:>10} {:>4}    {:<21} {}",
-            "State", "Elapsed", "Port", "Remote_Host", "rpc_stat");
-    }
-
     void print_status(const RemoteTarget& target) const {
+
+        constexpr auto fmt_str = "{:>11} {:>10.6f} {:>5}  {:<20} {}";
+
+        if (!labelPrinted_) {
+            LogInfo("{:>11} {:>10} {:>5}  {:<20} {}",
+              "State", "Elapsed", "Port", "Remote_Host", "rpc_stat");
+            labelPrinted_ = true;
+        }
+        
         if (target.lastStatus.state == ClientState::RESPONDING) {
-            LogInfo("{:>10} {:>10.6f} {:>4}   {:<11} {}",
+            LogInfo(fmt_str,
                 state_to_string(target.lastStatus.state),
                 target.lastStatus.elapsedSeconds,
                 target.lastStatus.port,
                 target.host,
                 target.lastStatus.errorMessage);
         } else {
-            LogError("{:>10} {:10.6f} {:4} {:<11} {}",
+            LogError(fmt_str,
                 state_to_string(target.lastStatus.state),
                 target.lastStatus.elapsedSeconds,
                 target.lastStatus.port,
@@ -114,6 +119,7 @@ protected:
                 t.host = sa->GetHost();
                 t.port = sa->GetPort();
                 t.client = NetworkFactory::CreateClient(std::move(*sa), timeo_);
+
                 targets_.push_back(std::move(t));
             } else {
                 LogError("Invalid target address: {}", h);
@@ -123,9 +129,21 @@ protected:
         return !targets_.empty();
     }
 
-    int Run() override {
-        if (verbose_) print_label();
+    bool Initialize() override {
+        if (!Application::Initialize()) return false;
+        
+        // Force the log level to INFO so print_label() and print_status() actually output
+        // This matches legacy ldm.  We need to rework logging flags a bit to match with
+        // spdlog at some point
+        log_set_level(LOG_LEVEL_INFO); 
+        
+        return true;
+    }
 
+    int Run() override {
+        labelPrinted_ = false;
+
+        LogInfo("Pinging every {} seconds...", interval_);
         while (!SignalManager::IsDone()){
             bool allResponding = true;
             

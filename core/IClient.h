@@ -81,6 +81,11 @@ public:
 
   virtual void SetMaxHereIs(unsigned int max_hereis){ }
 
+  // RPC program version to send.
+  // Six is the current. Five is ancient.  Maybe later
+  // we'll need this.
+  virtual void SetProtocolVersion(unsigned long version){ }
+
   virtual std::string
   GetLastError() const = 0;
 

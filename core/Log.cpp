@@ -20,7 +20,7 @@ static bool g_is_injected = false;
 static const ::spdlog::level::level_enum g_spdlog_levels[] = {
     ::spdlog::level::debug,    // LOG_LEVEL_DEBUG
     ::spdlog::level::info,     // LOG_LEVEL_INFO
-    ::spdlog::level::warn,     // LOG_LEVEL_NOTICE (Maps to warn)
+    ::spdlog::level::info,     // LOG_LEVEL_NOTICE (Maps to info)
     ::spdlog::level::warn,     // LOG_LEVEL_WARNING
     ::spdlog::level::err,      // LOG_LEVEL_ERROR
     ::spdlog::level::critical  // LOG_LEVEL_FATAL

@@ -83,7 +83,7 @@ template <typename ... Args>
 inline void LogNotice(fmt::format_string<Args...> fmt_str, Args&&... args) {
   ErrnoPreserver ep;
   if (!log_is_enabled_notice) return;
-  log_route_message(LOG_LEVEL_NOTICE, "[NOTICE] " + fmt::format(fmt_str, std::forward<Args>(args)...));
+  log_route_message(LOG_LEVEL_NOTICE, "Note: " + fmt::format(fmt_str, std::forward<Args>(args)...));
 }
 
 template <typename ... Args>

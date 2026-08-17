@@ -1,5 +1,6 @@
 #include "ServiceAddr.h"
 #include "Log.h"
+#include "Timestamp.h"
 #include <algorithm>
 #include <cctype>
 #include <cstring>
@@ -96,30 +97,37 @@ bool ServiceAddr::Resolve(struct sockaddr_storage* outAddr, socklen_t* outLen, i
         LogError("Invalid arguments passed to ServiceAddr::Resolve");
         return false;
     }
-
     struct addrinfo hints{};
     hints.ai_family = family;
     hints.ai_protocol = IPPROTO_TCP;
     hints.ai_socktype = SOCK_STREAM;
-    //hints.ai_flags = serverSide ? (AI_NUMERICSERV | AI_PASSIVE) : (AI_NUMERICSERV | AI_ADDRCONFIG);
     hints.ai_flags = serverSide ? (AI_NUMERICSERV | AI_PASSIVE) : AI_NUMERICSERV;
-
     std::string portStr = std::to_string(port_);
     struct addrinfo* addrInfo = nullptr;
 
+    Timestamp start = Timestamp::Now();
     int status = getaddrinfo(host_.c_str(), portStr.c_str(), &hints, &addrInfo);
+    Timestamp stop = Timestamp::Now();
+    double elapsed = (stop - start).AsSeconds();
+
     if (status != 0) {
         LogError("Couldn't resolve address {} - {}", ToString(), gai_strerror(status));
         return false;
     }
-
     if (addrInfo) {
         *outLen = addrInfo->ai_addrlen;
         std::memcpy(outAddr, addrInfo->ai_addr, *outLen);
+
+        char ipStr[NI_MAXHOST];
+        if (getnameinfo(reinterpret_cast<const struct sockaddr*>(addrInfo->ai_addr),
+                        addrInfo->ai_addrlen, ipStr, sizeof(ipStr),
+                        nullptr, 0, NI_NUMERICHOST) == 0) {
+            LogInfo("Resolving {} to {} took {:.6f} seconds", host_, ipStr, elapsed);
+        }
+
         freeaddrinfo(addrInfo);
         return true;
     }
-
     return false;
 }
 
