@@ -12,14 +12,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Forces Position Independent Code across the board for dynamic linking
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# Tells the linker to look in the sibling library directory relative to the binary
-set(CMAKE_INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+# RPATH stuff (see cmake/RPathConfig.cmake) -------
+# Set the default behavior so users don't have to specify it on the command line
+set(RDM_RPATH_MODE "ABSOLUTE" CACHE STRING "Default to locked binaries for multiple builds")
+#set(RDM_RPATH_MODE "RELATIVE" CACHE STRING "Default to relative binaries using $ORIGIN")
+#set(RDM_RPATH_MODE "OFF" CACHE STRING "Standard CMake RPATH ripping")
 
-# Keep the build-tree RPATH when installing so external dependencies still resolve
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
-
-# Don't embed the absolute build-tree path into the final installed binary
-set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(RPathConfig)
+configure_custom_rpath(RDM)
+# -------------------------------------------------
 
 # Set a default build type if none was specified
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
