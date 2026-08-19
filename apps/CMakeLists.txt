@@ -72,6 +72,15 @@ addLDMBinary(rdmpull
     SOURCES rdmpull.cpp
 )
 
+# ==============================================================================
+# Executable Definition (ldmsend) Push file directly.
+# In practice it's better to use pqinsert to a local queue and pqsend,
+# less overhead  Especially with the modern posix flags
+# ==============================================================================
+addLDMBinary(ldmsend  
+    SOURCES ldmsend.cpp
+)
+
 # We should just have a single binary.  One does full data, the other
 # only metadata.
 #addLDMBinary(notifyme  

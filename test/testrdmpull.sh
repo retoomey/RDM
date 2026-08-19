@@ -1,8 +1,8 @@
 #!/bin/bash
 # Local Network Integration test for rdmpull.
 # Purpose: Spins up a local upstream feeder on an unprivileged port, 
-# tests rdmpull for full payload retrieval (feedme), and tests 
-# rdmpull -m for metadata-only retrieval (notifyme).
+# tests rdmpull -d for full payload retrieval (feedme), and tests 
+# rdmpull for metadata-only retrieval (notifyme).
 
 set -e
 
@@ -59,13 +59,13 @@ EOF
 
 echo ""
 echo "======================================================="
-echo " TEST 1: Full Pull (-m omitted, equivalent to feedme)"
+echo " TEST 1: Full Pull (-d full data, equivalent to feedme)"
 echo "======================================================="
 FULL_OUT="$TEST_DIR/pull_full.out"
 FULL_ERR="$TEST_DIR/pull_full.err"
 
-# Run without -m, WITH -v, and using a wide offset to avoid timing misses
-$BIN_DIR/rdmpull -v -o 3600 -h localhost -P $LDM_PORT -p "TEST_FULL" > "$FULL_OUT" 2> "$FULL_ERR" &
+# Run with -d, WITH -v, and using a wide offset to avoid timing misses
+$BIN_DIR/rdmpull -d -v -o 3600 -h localhost -P $LDM_PORT -p "TEST_FULL" > "$FULL_OUT" 2> "$FULL_ERR" &
 PULL_FULL_PID=$!
 
 # Give ldmd time to accept the TCP connection and fork the downstream feeder
@@ -84,9 +84,9 @@ wait $PULL_FULL_PID 2>/dev/null || true
 
 # Verify the output
 if grep -q "FULL_PAYLOAD_SUCCESS" "$FULL_OUT"; then
-    echo "✅ SUCCESS: rdmpull successfully downloaded the full payload to stdout!"
+    echo "✅ SUCCESS: rdmpull -d successfully downloaded the full payload to stdout!"
 else
-    echo "❌ FAILURE: rdmpull failed to output the full payload."
+    echo "❌ FAILURE: rdmpull -d failed to output the full payload."
     echo "--- stdout dump ---"
     cat "$FULL_OUT"
     echo "--- stderr dump ---"
@@ -96,14 +96,14 @@ fi
 
 echo ""
 echo "======================================================="
-echo " TEST 2: Metadata Only (-m flag, equivalent to notifyme)"
+echo " TEST 2: Metadata Only (no -d flag, equivalent to notifyme)"
 echo "======================================================="
 
 META_OUT="$TEST_DIR/pull_meta.out"
 META_ERR="$TEST_DIR/pull_meta.err"
 
-# Run WITH -m, WITH -v, and using a wide offset
-$BIN_DIR/rdmpull -m -v -o 3600 -h localhost -P $LDM_PORT -p "TEST_META" > "$META_OUT" 2> "$META_ERR" &
+# Run without -d, WITH -v, and using a wide offset
+$BIN_DIR/rdmpull -v -o 3600 -h localhost -P $LDM_PORT -p "TEST_META" > "$META_OUT" 2> "$META_ERR" &
 PULL_META_PID=$!
 
 sleep 1
@@ -118,12 +118,12 @@ wait $PULL_META_PID 2>/dev/null || true
 
 # Verify the output: Payload should NOT be in stdout, but the ID should be in stderr
 if grep -q "META_PAYLOAD_SHOULD_BE_HIDDEN" "$META_OUT"; then
-    echo "❌ FAILURE: rdmpull -m accidentally downloaded and printed the full payload."
+    echo "❌ FAILURE: rdmpull accidentally downloaded and printed the full payload."
     exit 1
 elif grep -q "TEST_META_PRODUCT" "$META_ERR"; then
-    echo "✅ SUCCESS: rdmpull -m successfully retrieved metadata without downloading the payload!"
+    echo "✅ SUCCESS: rdmpull successfully retrieved metadata without downloading the payload!"
 else
-    echo "❌ FAILURE: rdmpull -m failed to log the product metadata."
+    echo "❌ FAILURE: rdmpull failed to log the product metadata."
     echo "--- stderr dump ---"
     cat "$META_ERR"
     exit 1

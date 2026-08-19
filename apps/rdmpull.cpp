@@ -17,7 +17,7 @@ using namespace rdm;
 // =======================================================================
 class PullHandler : public IServiceHandler {
 private:
-    bool metadataOnly_;
+    bool requestFullData_;
     bool showProdOrigin_;
     ProdClass& clss_;
     unsigned int remaining_{0};
@@ -43,8 +43,8 @@ private:
     }
 
 public:
-    explicit PullHandler(bool metadataOnly, bool showOrigin, ProdClass& clss) 
-        : metadataOnly_(metadataOnly), showProdOrigin_(showOrigin), clss_(clss) {}
+    explicit PullHandler(bool requestFullData, bool showOrigin, ProdClass& clss) 
+        : requestFullData_(requestFullData), showProdOrigin_(showOrigin), clss_(clss) {}
 
     bool IsConnectionAllowed(const std::string& hostname, 
        const std::string& ip) override { return true; }
@@ -52,8 +52,8 @@ public:
     int OnHereIs(const PeerContext& peer, const Product& product) override {
         PrintInfo(product.info);
         
-        // Only write payload data if we are NOT in metadata-only mode
-        if (!metadataOnly_) {
+        // Only write payload data if we are IN full-data mode
+        if (requestFullData_) {
             if (write(STDOUT_FILENO, product.data, product.info.sz) != static_cast<ssize_t>(product.info.sz)) {
                 LogSyserr("data write failed");
                 SignalManager::TriggerShutdown();
@@ -90,8 +90,8 @@ public:
             UpdateClassTime(arrival_sec_, arrival_usec_);
         }
         
-        // Only write payload data if we are NOT in metadata-only mode
-        if (!metadataOnly_) {
+        // Only write payload data if we are IN full-data mode
+        if (requestFullData_) {
             if (write(STDOUT_FILENO, data, size) != static_cast<ssize_t>(size)) {
                 LogSyserr("data write failed");
                 SignalManager::TriggerShutdown();
@@ -123,14 +123,14 @@ class RdmPullApp : public NetworkApp {
 private:
     ProdClass clss_;
     unsigned totalTimeo_{300};
-    bool metadataOnly_{false};
+    bool requestFullData_{false};
     bool showProdOrigin_{false};
 
 protected:
     void ConfigureOptions() override {
         NetworkApp::ConfigureOptions();
         
-        RegisterFlag('m', "Metadata only (Acts as notifyme instead of feedme)");
+        RegisterFlag('d', "Request full data as well as metadata (Acts as feedme instead of notify)");
         RegisterFlag('O', "Include product origin in verbose output");
         RegisterOption('f', "feedtype", "Interested in products from feed 'feedtype'", "ANY");
         RegisterOption('p', "pattern", "Interested in products matching 'pattern'", ".*");
@@ -141,7 +141,7 @@ protected:
     bool ProcessOptions() override {
         if (!NetworkApp::ProcessOptions()) return false;
 
-        metadataOnly_ = IsSet('m');
+        requestFullData_ = IsSet('d');
         showProdOrigin_ = IsSet('O');
 
         Timestamp now = Timestamp::Now();
@@ -171,7 +171,6 @@ protected:
     bool Initialize() override {
         if (!NetworkApp::Initialize()) return false;
 
-        //LogNotice("Starting Up: {}", remoteHost_);
         LogNotice("Starting Up: {}: {}", remoteHost_, clss_.ToString());
 
         if (totalTimeo_ > 0) {
@@ -186,7 +185,7 @@ protected:
     }
 
     int Run() override {
-        auto handler = std::make_shared<PullHandler>(metadataOnly_, showProdOrigin_, clss_);
+        auto handler = std::make_shared<PullHandler>(requestFullData_, showProdOrigin_, clss_);
         auto client = CreateClient();
         if (!client) return EXIT_FAILURE;
 
@@ -201,8 +200,8 @@ protected:
             }
 
             FeedRequest req;
-            req.isNotifier = metadataOnly_;
-            req.maxHereis = metadataOnly_ ? 0 : UINT_MAX;
+            req.isNotifier = !requestFullData_;
+            req.maxHereis = requestFullData_ ? UINT_MAX : 0;
             req.requestedClass = clss_;
 
             FeedResponse resp = client->SubscribeAndListen(req, handler, timeo_);
@@ -211,7 +210,7 @@ protected:
               client->Disconnect();
               break;
             } else if (resp.statusCode != ReplyStatus::OK) {
-              LogError("Pull failed: {}", client->GetLastError());   // "FEEDME failed" / "NOTIFYME failed" in the other two
+              LogError("Pull failed: {}", client->GetLastError());
             }
             client->Disconnect();
             if (SignalManager::IsDone()) break;
