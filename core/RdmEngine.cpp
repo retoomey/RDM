@@ -244,8 +244,11 @@ void RdmEngine::ConfigureOptions() {
     RegisterOption('H', "maxhereis", "Max size for HEREIS transfer", "16384");
 }
 
+#if 0
 bool RdmEngine::ProcessOptions() {
     if (!Application::ProcessOptions()) return false;
+
+
     ldmBindAddr_ = GetOption('I');
     if (IsSet('P')) ldmPort_ = std::stoul(GetOption('P'));
     if (IsSet('M')) maxClients_ = std::stoul(GetOption('M'));
@@ -267,6 +270,77 @@ bool RdmEngine::ProcessOptions() {
     if (!positionalArgs_.empty()) {
         registry::setLdmdConfigPath(positionalArgs_[0]);
     }
+    return true;
+}
+#endif
+
+bool RdmEngine::ProcessOptions() {
+    if (!Application::ProcessOptions()) return false;
+
+    // Defaults should be from the registry.xml unless overridden
+   
+    // 1. INTERFACE (-I)
+    ldmBindAddr_ = GetOption('I');
+    if (ldmBindAddr_.empty()) {
+        ldmBindAddr_ = registry::getString(registry::RegistryKey::Hostname);
+    } else {
+        registry::putString(registry::RegistryKey::Hostname, ldmBindAddr_);
+    }
+
+    // 2. PORT (-P)
+    unsigned int regPort = registry::getUint(registry::RegistryKey::Port);
+    if (IsSet('P')) {
+        ldmPort_ = std::stoul(GetOption('P'));
+    } else if (regPort > 0) {
+        ldmPort_ = regPort;
+    }
+    registry::putUint(registry::RegistryKey::Port, ldmPort_);
+
+    // 3. MAX CLIENTS (-M)
+    // Note: Add a RegistryKey for MaxClients if you haven't yet!
+    if (IsSet('M')) {
+        maxClients_ = std::stoul(GetOption('M'));
+    }
+
+    // 4. MAX LATENCY (-m)
+    if (IsSet('m')) {
+        registry::putUint(registry::RegistryKey::MaxLatency, std::stoul(GetOption('m')));
+    }
+
+    // 5. RPC TIMEOUT (-t)
+    if (IsSet('t')) {
+        registry::putUint(registry::RegistryKey::RpcTimeout, std::stoul(GetOption('t')));
+    }
+
+    // 6. TIME OFFSET (-o)
+    if (IsSet('o')) {
+        registry::putInt(registry::RegistryKey::TimeOffset, std::stoi(GetOption('o')));
+    }
+
+    // 7. QUEUE PATH (-q)
+    if (IsSet('q')) {
+        registry::setQueuePath(GetOption('q'));
+    }
+
+    // 8. LDMD CONFIG PATH (Positional)
+    if (!positionalArgs_.empty()) {
+        registry::setLdmdConfigPath(positionalArgs_[0]);
+    }
+
+    // Flags & Unregistered Options
+    if (IsSet('N')) disableNagles_ = true;
+    if (IsSet('D')) becomeDaemon_ = true;
+    if (IsSet('H')) maxHereis_ = std::stoul(GetOption('H'));
+    checkOnly_ = IsSet('n');
+
+    // 9. VALIDATION STEP
+    auto maxLatency = registry::getUint(registry::RegistryKey::MaxLatency);
+    auto effectiveOffset = registry::getTimeOffset();
+    if (effectiveOffset > maxLatency) {
+        LogError("invalid toffset ({}) > max_latency ({})", effectiveOffset, maxLatency);
+        return false;
+    }
+
     return true;
 }
 
