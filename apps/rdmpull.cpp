@@ -5,6 +5,7 @@
 #include "Log.h"
 #include "IServiceHandler.h"
 #include "Timestamp.h"
+#include "Registry.h"
 #include <iostream>
 #include <unistd.h>
 #include <cstring>
@@ -139,33 +140,49 @@ protected:
     }
 
     bool ProcessOptions() override {
-        if (!NetworkApp::ProcessOptions()) return false;
+       // Handles 'h', 'P' and 't' rpc timeout
+       if (!NetworkApp::ProcessOptions()) return false;
 
-        requestFullData_ = IsSet('d');
-        showProdOrigin_ = IsSet('O');
+       requestFullData_ = IsSet('d');
+       showProdOrigin_ = IsSet('O');
 
-        Timestamp now = Timestamp::Now();
-        clss_.from_sec = now.tv_sec;
-        clss_.from_usec = now.tv_usec;
-        clss_.to_sec = 0x7fffffff;
-        clss_.to_usec = 999999;
+       // ------------------------------------------------========================
+       // 1. TIME OFFSET REGISTRY FALLBACK
+       // ------------------------------------------------========================
+       Timestamp now = Timestamp::Now();
+       clss_.from_sec = now.tv_sec;
+       clss_.from_usec = now.tv_usec;
+       clss_.to_sec = 0x7fffffff;
+       clss_.to_usec = 999999;
 
-        ProdSpec spec;
-        spec.feedtype = 0xffffffff;
-        spec.pattern = ".*";
+       // Pull offset from CLI if -o set; otherwise pull default from registry
+       long effectiveOffset = 0;
+       if (IsSet('o')) {
+           effectiveOffset = std::stol(GetOption('o'));
+       } else {
+           effectiveOffset = registry::getTimeOffset();
+       }
+       clss_.from_sec -= effectiveOffset;
 
-        if (IsSet('f')) {
-            if (FeedType::Parse(GetOption('f'), spec.feedtype) != FEEDTYPE_OK) {
-                LogError("Bad feedtype \"{}\"", GetOption('f'));
-                return false;
-            }
-        }
-        if (IsSet('p')) spec.pattern = GetOption('p');
-        if (IsSet('o')) clss_.from_sec -= std::stoul(GetOption('o'));
-        if (IsSet('T')) totalTimeo_ = std::stoul(GetOption('T'));
+       // ------------------------------------------------========================
+       // 2. OTHER OPTIONS & SPECS
+       // ------------------------------------------------========================
+       ProdSpec spec;
+       spec.feedtype = 0xffffffff;
+       spec.pattern = ".*";
 
-        clss_.specs.push_back(spec);
-        return true;
+       if (IsSet('f')) {
+           if (FeedType::Parse(GetOption('f'), spec.feedtype) != FEEDTYPE_OK) {
+               LogError("Bad feedtype \"{}\"", GetOption('f'));
+               return false;
+           }
+       }
+
+       if (IsSet('p')) spec.pattern = GetOption('p');
+       if (IsSet('T')) totalTimeo_ = std::stoul(GetOption('T'));
+
+       clss_.specs.push_back(spec);
+       return true;
     }
 
     bool Initialize() override {

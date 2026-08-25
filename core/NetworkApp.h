@@ -3,6 +3,7 @@
 #include "IClient.h"
 #include "NetworkFactory.h"
 #include "ServiceAddr.h"
+#include "Registry.h"
 #include <string>
 #include <memory>
 
@@ -32,9 +33,29 @@ protected:
   {
     if (!Application::ProcessOptions()) { return false; }
 
-    if (IsSet('h')) { remoteHost_ = GetOption('h'); }
-    if (IsSet('P')) { port_ = std::stoul(GetOption('P')); }
-    if (IsSet('t')) { timeo_ = std::stoul(GetOption('t')); }
+    // 1. HOSTNAME RESOLUTION
+    if (IsSet('h')) {
+      remoteHost_ = GetOption('h');
+    } else {
+      std::string regHost = registry::getString(registry::RegistryKey::Hostname);
+      remoteHost_ = !regHost.empty() ? regHost : "localhost";
+    }
+
+    // 2. PORT RESOLUTION
+    if (IsSet('P')) {
+      port_ = static_cast<unsigned>(std::stoul(GetOption('P')));
+    } else {
+      unsigned regPort = registry::getUint(registry::RegistryKey::Port);
+      port_ = (regPort > 0) ? regPort : 388;
+    }
+
+    // 3. TIMEOUT RESOLUTION
+    if (IsSet('t')) {
+      timeo_ = static_cast<unsigned>(std::stoul(GetOption('t')));
+    } else {
+      unsigned regTimeo = registry::getUint(registry::RegistryKey::RpcTimeout);
+      timeo_ = (regTimeo > 0) ? regTimeo : 60;
+    }
 
     return true;
   }

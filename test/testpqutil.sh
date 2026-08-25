@@ -64,7 +64,7 @@ PQCAT_LOG="$LOG_DIR/pqcat.log"
 PQCAT_OUT="$DATA_DIR/pqcat_out.txt"
 
 # We use pqcat to dump the queue and see if our manually constructed product is there
-if $BIN_DIR/$BIN_PQCAT -v -q "$QUEUE_PATH" -f EXP -l "$PQCAT_LOG" > "$PQCAT_OUT"; then
+if $BIN_DIR/$BIN_PQCAT -d -v -q "$QUEUE_PATH" -f EXP -l "$PQCAT_LOG" > "$PQCAT_OUT"; then
     if grep -q "Hello pqutil!" "$PQCAT_OUT"; then
         echo "✅ SUCCESS: The 'new' -> 'put' -> 'write' command sequence successfully built and inserted the product!"
     else

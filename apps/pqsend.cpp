@@ -78,7 +78,7 @@ private:
 protected:
     void ConfigureOptions() override {
         QueueApp::ConfigureOptions();
-        RegisterOption('h', "remote", "Send to the LDM on 'remote' (default: localhost)", "localhost");
+        RegisterOption('h', "remote", "Send local queue to the RDM/LDM server on 'remote' ", "");
         RegisterOption('P', "port", "Set the port number (default: 388)", "388");
         RegisterOption('f', "feedtype", "Send products matching 'feedtype'", "ANY");
         RegisterOption('p', "pattern", "Send products matching 'pattern'", ".*");
@@ -93,6 +93,10 @@ protected:
         if (!QueueApp::ProcessOptions()) return false;
         
         if (IsSet('h')) remoteHost_ = GetOption('h');
+        if (remoteHost_.empty()){
+          LogError("Explicitly state outbound hostname");
+          return false;
+        }
         if (IsSet('P')) port_ = std::stoul(GetOption('P'));
         if (IsSet('i')) interval_ = std::stoul(GetOption('i'));
         if (IsSet('t')) rpcTimeout_ = std::stoul(GetOption('t'));

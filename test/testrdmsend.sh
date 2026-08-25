@@ -55,7 +55,7 @@ sleep 1
 echo "=== Phase VI: Verifying Ingestion Success ==="
 PQCAT_OUT="$DATA_DIR/pqcat_out.txt"
 # Using pqcat to extract the payload we just pushed
-"$BIN_DIR/$BIN_PQCAT" -q "$SERVER_QUEUE" -f EXP -p "dummy_payload" > "$PQCAT_OUT"
+"$BIN_DIR/$BIN_PQCAT" -d -q "$SERVER_QUEUE" -f EXP -p "dummy_payload" > "$PQCAT_OUT"
 
 PASSED=true
 

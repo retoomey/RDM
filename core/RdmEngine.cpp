@@ -244,36 +244,6 @@ void RdmEngine::ConfigureOptions() {
     RegisterOption('H', "maxhereis", "Max size for HEREIS transfer", "16384");
 }
 
-#if 0
-bool RdmEngine::ProcessOptions() {
-    if (!Application::ProcessOptions()) return false;
-
-
-    ldmBindAddr_ = GetOption('I');
-    if (IsSet('P')) ldmPort_ = std::stoul(GetOption('P'));
-    if (IsSet('M')) maxClients_ = std::stoul(GetOption('M'));
-    if (IsSet('m')) registry::putUint(registry::RegistryKey::MaxLatency, std::stoul(GetOption('m')));
-    if (IsSet('t')) registry::putUint(registry::RegistryKey::RpcTimeout, std::stoul(GetOption('t')));
-    if (IsSet('o')) registry::putInt(registry::RegistryKey::TimeOffset, std::stoi(GetOption('o')));
-    if (IsSet('N')) disableNagles_ = true;
-    if (IsSet('D')) becomeDaemon_ = true; // Fix implemented here
-    if (IsSet('H')) maxHereis_ = std::stoul(GetOption('H'));
-    checkOnly_ = IsSet('n');
-    
-    auto maxLatency = registry::getUint(registry::RegistryKey::MaxLatency);
-    auto effectiveOffset = registry::getTimeOffset();
-    if (effectiveOffset > maxLatency) {
-        LogError("invalid toffset ({}) > max_latency ({})", effectiveOffset, maxLatency);
-        return false;
-    }
-    if (IsSet('q')) registry::setQueuePath(GetOption('q'));
-    if (!positionalArgs_.empty()) {
-        registry::setLdmdConfigPath(positionalArgs_[0]);
-    }
-    return true;
-}
-#endif
-
 bool RdmEngine::ProcessOptions() {
     if (!Application::ProcessOptions()) return false;
 

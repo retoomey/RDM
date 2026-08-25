@@ -55,7 +55,7 @@ echo "=== Phase V: Launching C++ $BIN_PQSEND to Push Data ==="
 
 echo "=== Phase VI: Verifying Ingestion Success ==="
 PQCAT_OUT="$DATA_DIR/pqcat_out.txt"
-"$BIN_DIR/$BIN_PQCAT" -q "$SERVER_QUEUE" -f ANY -p "TEST_.*" > "$PQCAT_OUT"
+"$BIN_DIR/$BIN_PQCAT" -d -q "$SERVER_QUEUE" -f ANY -p "TEST_.*" > "$PQCAT_OUT"
 
 PASSED=true
 

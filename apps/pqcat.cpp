@@ -33,6 +33,7 @@ private:
     bool md5_check_{false};
     bool showProdOrigin_{false};
     bool queueSanityCheck_{false};
+    bool dumpData_{false};
     int interval_{0};
     ProdClass clss_;
     size_t nprods_{0};
@@ -40,6 +41,22 @@ private:
     // NEW: The app owns its own iteration state!
     std::unique_ptr<IQueueCursor> cursor_; 
 
+    /** Write the metadata only */
+    static int WriteMetadata(const ProdInfo& info, const void* datap, void* xprod, size_t size, void* arg) {
+        auto* app = static_cast<PqCatApp*>(arg);
+        
+        // Pass 'true' to include the MD5 signature in stdout metadata dumps
+        if (app->showProdOrigin_) {
+            fmt::print(stdout, "{} {}\n", info.ToString(true), info.origin);
+        } else {
+            fmt::print(stdout, "{}\n", info.ToString(true));
+        }
+
+        app->nprods_++;
+        return 0;
+    }
+
+    /** Write the full product */
     static int WriteProd(const ProdInfo& info, const void* datap, void* xprod, size_t size, void* arg) {
         auto* app = static_cast<PqCatApp*>(arg);
         if (log_is_enabled_info) {
@@ -77,6 +94,7 @@ private:
 protected:
     void ConfigureOptions() override {
         QueueApp::ConfigureOptions();
+        RegisterFlag('d', "Dump full product data payload to stdout (default: metadata only)");
         RegisterOption('i', "interval", "Poll queue after 'interval' secs (default 0)", "0");
         RegisterFlag('e', "Extended output format");
         RegisterFlag('S', "Print raw queue metrics for machine parsing");
@@ -90,6 +108,7 @@ protected:
 
     bool ProcessOptions() override {
         if (!QueueApp::ProcessOptions()) return false;
+        dumpData_ = IsSet('d');
         md5_check_ = IsSet('c');
         showProdOrigin_ = IsSet('O');
         queueSanityCheck_ = IsSet('s');
@@ -144,15 +163,22 @@ protected:
 
     int Run() override {
         int status = 0;
+
+        // Determine callback once prior to the polling loop
+        pq_seqfunc* callback = WriteMetadata;
+        if (queueSanityCheck_) {
+            callback = TallyProds;
+        } else if (dumpData_) {
+            callback = WriteProd;
+        }
+
         while (!SignalManager::IsDone()){
             if (g_stats_req) {
                 DumpStats();
                 g_stats_req = 0;
             }
             
-            status = queueSanityCheck_
-                ? cursor_->sequence(Match::GreaterThan, clss_, TallyProds, this)
-                : cursor_->sequence(Match::GreaterThan, clss_, WriteProd, this);
+            status = cursor_->sequence(Match::GreaterThan, clss_, callback, this);
                 
             if (status == 0) continue;
             if (status == static_cast<int>(PqStatus::End)) {
