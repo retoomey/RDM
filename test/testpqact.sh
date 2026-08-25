@@ -102,13 +102,13 @@ printf "</large_data>\n" >> "$LARGE_XML"
 
 # Create the target product queue
 echo "📦 Building uninstalled testing queue..."
-$BIN_DIR/pqcreate -c -s 15M -S 2000 -q "$QUEUE_PATH"
+$BIN_DIR/$BIN_PQCREATE -c -s 15M -S 2000 -q "$QUEUE_PATH"
 
 # ==============================================================================
 # 5. Launch Standalone pqact Core Instance
 # ==============================================================================
 echo "🎯 Spawning detached standalone pqact monitoring engine..."
-$BIN_DIR/pqact -x -d "$TEST_DIR" \
+$BIN_DIR/$BIN_PQACT -x -d "$TEST_DIR" \
                -l "$LOG_DIR/pqact.log" \
                -i 1 \
                -t 2 \
@@ -124,30 +124,30 @@ sleep 2
 # ==============================================================================
 echo "⚡ Phase I: Injecting 15 unique targets to force LRU pool evictions (Max 10)..."
 for i in {01..15}; do
-    $BIN_DIR/pqinsert -i -q "$QUEUE_PATH" -f EXP -p "test_product_${i}.xml" "$DUMMY_XML"
+    $BIN_DIR/$BIN_PQINSERT -i -q "$QUEUE_PATH" -f EXP -p "test_product_${i}.xml" "$DUMMY_XML"
 done
 
 echo "⚡ Phase II: Injecting sequential appends targeting STDIOFILE layout..."
 for i in {1..5}; do
-    $BIN_DIR/pqinsert -i -q "$QUEUE_PATH" -f EXP -p "stdio_append_${i}.xml" "$DUMMY_XML"
+    $BIN_DIR/$BIN_PQINSERT -i -q "$QUEUE_PATH" -f EXP -p "stdio_append_${i}.xml" "$DUMMY_XML"
 done
 
 echo "⚡ Phase III: Passing payloads into decoders via PIPE structures..."
 for i in {1..3}; do
-    $BIN_DIR/pqinsert -i -q "$QUEUE_PATH" -f EXP -p "pipe_stream_${i}.xml" "$DUMMY_XML"
+    $BIN_DIR/$BIN_PQINSERT -i -q "$QUEUE_PATH" -f EXP -p "pipe_stream_${i}.xml" "$DUMMY_XML"
 done
 
 echo "⚡ Phase IV: Introducing wire-format frames containing raw binary blocks..."
-$BIN_DIR/pqinsert -i -q "$QUEUE_PATH" -f EXP -p "wmo_ingest_data.xml" "$WMO_XML"
+$BIN_DIR/$BIN_PQINSERT -i -q "$QUEUE_PATH" -f EXP -p "wmo_ingest_data.xml" "$WMO_XML"
 
 echo "⚡ Phase V: Testing advanced date, sequence, and regex string substitutions..."
-$BIN_DIR/pqinsert -i -q "$QUEUE_PATH" -f EXP -p "sub_28_payload.xml" "$DUMMY_XML"
+$BIN_DIR/$BIN_PQINSERT -i -q "$QUEUE_PATH" -f EXP -p "sub_28_payload.xml" "$DUMMY_XML"
 
 echo "⚡ Phase VI: Spawning independent EXEC process tracking..."
-$BIN_DIR/pqinsert -i -q "$QUEUE_PATH" -f EXP -p "exec_child.xml" "$DUMMY_XML"
+$BIN_DIR/$BIN_PQINSERT -i -q "$QUEUE_PATH" -f EXP -p "exec_child.xml" "$DUMMY_XML"
 
 echo "⚡ Phase VII: Testing 50KB large product pipe-fragmentation bounds..."
-$BIN_DIR/pqinsert -i -q "$QUEUE_PATH" -f EXP -p "large_product.xml" "$LARGE_XML"
+$BIN_DIR/$BIN_PQINSERT -i -q "$QUEUE_PATH" -f EXP -p "large_product.xml" "$LARGE_XML"
 
 # Let pqact parse through the trailing frames
 sleep 4
@@ -157,14 +157,14 @@ kill -HUP $PQACT_PID
 sleep 2
 
 echo "⚡ Phase IX: Injecting final payload to prove SIGHUP survival..."
-$BIN_DIR/pqinsert -i -q "$QUEUE_PATH" -f EXP -p "test_survival.xml" "$DUMMY_XML"
+$BIN_DIR/$BIN_PQINSERT -i -q "$QUEUE_PATH" -f EXP -p "test_survival.xml" "$DUMMY_XML"
 sleep 2
 
 echo "⚡ Phase X: Forcing a PIPE timeout with a hung decoder..."
 # Inject a payload large enough to instantly fill the OS pipe buffer (e.g., Linux default is 64KB).
 # This guarantees pqact's write() will block, forcing it into our new poll() timeout logic.
 dd if=/dev/zero of="$TEST_DIR/massive_payload.dat" bs=100K count=1 2>/dev/null
-$BIN_DIR/pqinsert -i -q "$QUEUE_PATH" -f EXP -p "timeout_test.xml" "$TEST_DIR/massive_payload.dat"
+$BIN_DIR/$BIN_PQINSERT -i -q "$QUEUE_PATH" -f EXP -p "timeout_test.xml" "$TEST_DIR/massive_payload.dat"
 
 # Wait for the 2-second timeout to expire
 sleep 4
@@ -177,9 +177,9 @@ PASSED=true
 
 # Check 1: LRU cache evictions
 if grep -q "Deleting least-recently-used FILE entry" "$LOG_DIR/pqact.log"; then
-    echo "✅ SUCCESS: LRU cache engine triggered and evicted files correctly."
+    echo "✅ SUCCESS: $BIN_LDMD cache engine triggered and evicted files correctly."
 else
-    echo "❌ FAILURE: LRU cache logic was not triggered."
+    echo "❌ FAILURE: $BIN_LDMD cache logic was not triggered."
     PASSED=false
 fi
 
@@ -243,16 +243,16 @@ echo "Looking for .state file in $TEST_DIR"
 STATE_FILE=$(find "$TEST_DIR" -name "*.state" | head -n 1)
 
 if [ -n "$STATE_FILE" ]; then
-    echo "✅ SUCCESS: pqact successfully flushed its state file!"
+    echo "✅ SUCCESS: $BIN_PQACT successfully flushed its state file!"
     echo "   -> $STATE_FILE"
 else
-    echo "❌ FAILURE: pqact failed to generate a .state file in the test directory!"
+    echo "❌ FAILURE: $BIN_PQACT failed to generate a .state file in the test directory!"
     PASSED=false
 fi
 
 if [ "$PASSED" = true ]; then
     echo "======================================================="
-    echo " 🎉 ALL ADVANCED PQACT MODERNIZATION TESTS PASSED! 🎉"
+    echo " 🎉 ALL ADVANCED $BIN_PQACT MODERNIZATION TESTS PASSED! 🎉"
     echo "======================================================="
     exit 0
 else

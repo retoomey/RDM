@@ -338,10 +338,12 @@ int RdmEngine::Run() {
             }
         }
         
-        // Spawn pqbroker if we need a listening port
+        const std::string broker = "rdmbroker";
+
+        // Spawn broker if we need a listening port
         if (spawnSuccess && aclManager_->RequiresServer()) {
             ExecRule serverRule;
-            std::string cmd = "pqbroker";
+            std::string cmd = broker;
             
             cmd += " -P " + std::to_string(ldmPort_);
             if (disableNagles_) cmd += " -N";
@@ -364,7 +366,7 @@ int RdmEngine::Run() {
             serverRule.command = Wordexp(cmd);
             pid_t srvPid = processManager_.SpawnExec(serverRule);
             if (srvPid < 0) {
-                LogFatal("Failed to spawn pqbroker!");
+                LogFatal("Failed to spawn {}!", broker);
                 spawnSuccess = false;
             }
         }

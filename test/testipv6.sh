@@ -3,7 +3,7 @@ set -e
 
 source ./test_utils.sh
 
-echo "=== 🚀 Setting up LDM IPv6 Integration Test Environment ==="
+echo "=== 🚀 Setting up $BIN_LDMD IPv6 Integration Test Environment ==="
 TEST_DIR="/tmp/ldm_ipv6_test_env"
 rm -rf "$TEST_DIR"
 sandbox_ldm "$TEST_DIR"
@@ -33,24 +33,24 @@ printf 'EXP\t^(test_.*\\.xml)$\tFILE\t-overwrite -close\t%s/var/data/\\1\n' "$DO
 # Downstream Request: Explicitly target the IPv6 loopback address using bracket notation
 DOWN_CONF="$DOWN_DIR/etc/ldmd.conf"
 echo "REQUEST EXP \"^(test_.*\.xml)$\" [::1]:6006" > "$DOWN_CONF"
-echo "EXEC \"$BIN_DIR/pqact -x -d $DOWN_DIR -l $DOWN_DIR/var/logs/pqact.log -o 3600 -i 1 -f EXP -q $DOWN_DIR/var/queues/down.pq $DOWN_PQACT_CONF\"" >> "$DOWN_CONF"
+echo "EXEC \"$BIN_DIR/$BIN_PQACT -x -d $DOWN_DIR -l $DOWN_DIR/var/logs/pqact.log -o 3600 -i 1 -f EXP -q $DOWN_DIR/var/queues/down.pq $DOWN_PQACT_CONF\"" >> "$DOWN_CONF"
 
 echo "=== Creating Product Queues ==="
-$BIN_DIR/pqcreate -c -s 10M -q "$UP_DIR/var/queues/up.pq"
-$BIN_DIR/pqcreate -c -s 10M -q "$DOWN_DIR/var/queues/down.pq"
+$BIN_DIR/$BIN_PQCREATE -c -s 10M -q "$UP_DIR/var/queues/up.pq"
+$BIN_DIR/$BIN_PQCREATE -c -s 10M -q "$DOWN_DIR/var/queues/down.pq"
 
-echo "=== Starting Upstream LDM Daemon (Port 6006) ==="
-$BIN_DIR/ldmd -x -P 6006 -q "$UP_DIR/var/queues/up.pq" -l - "$UP_CONF" > "$UP_DIR/var/logs/ldmd.log" 2>&1 &
+echo "=== Starting Upstream $BIN_LDMD Daemon (Port 6006) ==="
+$BIN_DIR/$BIN_LDMD -x -P 6006 -q "$UP_DIR/var/queues/up.pq" -l - "$UP_CONF" > "$UP_DIR/var/logs/ldmd.log" 2>&1 &
 UP_PID=$!
 
 sleep 2
 
 echo "=== Testing ldmping over IPv6 loopback ==="
 PING_LOG="$TEST_DIR/ping.log"
-if $BIN_DIR/ldmping -v -i 0 -P 6006 -h ::1 > "$PING_LOG" 2>&1; then
-    echo "✅ SUCCESS: ldmping successfully detected the active server via IPv6 [::1]."
+if $BIN_DIR/$BIN_LDMPING -v -i 0 -P 6006 -h ::1 > "$PING_LOG" 2>&1; then
+    echo "✅ SUCCESS: $BIN_LDMPING successfully detected the active server via IPv6 [::1]."
 else
-    echo "❌ FAILURE: ldmping failed over IPv6."
+    echo "❌ FAILURE: $BIN_LDMPING failed over IPv6."
     cat "$PING_LOG"
     stop_ldm_daemon $UP_PID
     exit 1
@@ -58,14 +58,14 @@ fi
 
 echo "=== Starting Downstream LDM Daemon (Port 6007) ==="
 cd "$DOWN_DIR/var/run" || exit 1
-$BIN_DIR/ldmd -x -P 6007 -q "$DOWN_DIR/var/queues/down.pq" -l - "$DOWN_CONF" > "$DOWN_DIR/var/logs/ldmd.log" 2>&1 &
+$BIN_DIR/$BIN_LDMD -x -P 6007 -q "$DOWN_DIR/var/queues/down.pq" -l - "$DOWN_CONF" > "$DOWN_DIR/var/logs/ldmd.log" 2>&1 &
 DOWN_PID=$!
 cd - > /dev/null
 
 sleep 4
 
-echo "=== Inserting XML into UPSTREAM via pqinsert ==="
-$BIN_DIR/pqinsert -x -l "$UP_DIR/var/logs/pqinsert.log" \
+echo "=== Inserting XML into UPSTREAM via $BIN_PQINSERT ==="
+$BIN_DIR/$BIN_PQINSERT -x -l "$UP_DIR/var/logs/pqinsert.log" \
           -q "$UP_DIR/var/queues/up.pq" \
           -f EXP \
           -p "test_ipv6_weather.xml" \
@@ -88,18 +88,18 @@ else
     echo "Check Downstream log: cat $DOWN_DIR/var/logs/ldmd.log"
 fi
 
-echo "=== Shutting down LDMs ==="
+echo "=== Shutting down $BIN_LDMD (s) ==="
 stop_ldm_daemon $DOWN_PID
 stop_ldm_daemon $UP_PID
 
 if [ "$PASSED" = true ]; then
     echo "======================================================="
-    echo " 🎉 LDM IPv6 multi-server test passed! 🎉"
+    echo " 🎉 $BIN_LDMD IPv6 multi-server test passed! 🎉"
     echo "======================================================="
     exit 0
 else
     echo "======================================================="
-    echo " 🚨 LDM IPv6 multi-server test failed 🚨"
+    echo " 🚨 $BIN_LDMD IPv6 multi-server test failed 🚨"
     echo "======================================================="
     exit 1
 fi

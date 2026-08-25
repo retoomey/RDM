@@ -1,128 +1,101 @@
 # Toomey May 2026
-# Applications using the ldm library
+# Applications using the rdm library
 #
 
 # ==============================================================================
-# Executable Definition (ldmd)
+# The main server
 # ==============================================================================
-addLDMBinary(ldmd
+# Executable Definition (rdmd)
+# Executable Definition (rdmbroker) -- per socket connection for rdmd
+# This is different than original ldm.  Original ldmd forked itself.
+# Now it spawns rpqbroker for each of the incoming connection sockets. 
+# This makes rdmd a true supervisor.
+# ==============================================================================
+addLDMBinary(rdmd
     SOURCES ldmd/ldmd.cpp
 )
-
-# ==============================================================================
-# Executable Definition (pqcreate)
-# ==============================================================================
-addLDMBinary(pqcreate
-    SOURCES pqcreate.cpp
-)
-
-# ==============================================================================
-# Executable Definition (pqinsert)
-# ==============================================================================
-# The product queue ingestion utility
-addLDMBinary(pqinsert
-    SOURCES pqinsert.cpp
-)
-
-# ==============================================================================
-# Executable Definition (pqsend)
-# ==============================================================================
-# The product queue pqsend utility
-addLDMBinary(pqsend
-    SOURCES pqsend.cpp
-)
-
-# ==============================================================================
-# Executable Definition (pqbroker)
-# This is different than original ldm.  Original ldmd forked itself, but
-# spawns pqsend, pqact.  Now it spawns pqbroker for the tree of incoming
-# connection sockets.  This makes ldmd a true supervisor.
-# ==============================================================================
-addLDMBinary(pqbroker
+addLDMBinary(rdmbroker
     SOURCES pqbroker.cpp
 )
 
 # ==============================================================================
-# Executable Definition (pqmon)
+# Local Product Queue tools
 # ==============================================================================
-# The queue health monitoring utility
-addLDMBinary(pqmon    
-    SOURCES pqmon.cpp
-)
-
 
 # ==============================================================================
-# Executable Definition (uldbutil)
-# ==============================================================================
-addLDMBinary(uldbutil    
-    SOURCES uldbutil.cpp
+# lpqcreate -- Create a new queue
+addLDMBinary(lpqcreate
+    SOURCES pqcreate.cpp
 )
 
 # ==============================================================================
-# Executable Definition (ldmping)
-# ==============================================================================
-addLDMBinary(ldmping   
-    SOURCES ldmping.cpp
+# lpqinsert -- Insert/append into local queue
+addLDMBinary(lpqinsert
+    SOURCES pqinsert.cpp
 )
 
 # ==============================================================================
-# Executable Definition (rdmpull) Combine feedme and notifyme
-# ==============================================================================
-addLDMBinary(rdmpull  
-    SOURCES rdmpull.cpp
-)
-
-# ==============================================================================
-# Executable Definition (ldmsend) Push file directly.
-# In practice it's better to use pqinsert to a local queue and pqsend,
-# less overhead  Especially with the modern posix flags
-# ==============================================================================
-addLDMBinary(ldmsend  
-    SOURCES ldmsend.cpp
-)
-
-# We should just have a single binary.  One does full data, the other
-# only metadata.
-#addLDMBinary(notifyme  
-#    SOURCES notifyme.cpp
-#)
-#addLDMBinary(feedme    
-#    SOURCES feedme.cpp
-#)
-
-# ==============================================================================
-# Executable Definition (pqcheck)
-# ==============================================================================
-addLDMBinary(pqcheck   
+# lpqcheck -- Check a local queue for damage
+addLDMBinary(lpqcheck   
     SOURCES pqcheck.cpp
 )
 
 # ==============================================================================
-# Executable Definition (pqutil)
+# lpqsend -- Monitors a local queue, pushing to a remote
+addLDMBinary(lpqsend
+    SOURCES pqsend.cpp
+)
+
 # ==============================================================================
-addLDMBinary(pqutil   
+# lpqmon -- Monitors a local queue
+addLDMBinary(lpqmon    
+    SOURCES pqmon.cpp
+)
+
+# ==============================================================================
+# Server tools (typically these ignore local queue files and work with servers)
+# ==============================================================================
+
+# ==============================================================================
+# rdmping -- Ping an ldm/rdm server
+addLDMBinary(rdmping   
+    SOURCES ldmping.cpp
+)
+
+# ==============================================================================
+# rdmcat -- Pulls metadata or data from a server
+#        -- Combines old feedme and notifyme
+#        -- Server equivalent to lpqcat
+addLDMBinary(rdmcat 
+    SOURCES rdmpull.cpp
+)
+
+# ==============================================================================
+# rdmsend -- Push a local file directly to a server.  Connects than disconnects
+# In practice it's better to use lpqinsert to a local queue and lpqsend,
+# less overhead  Especially with the modern posix flags
+# ==============================================================================
+addLDMBinary(rdmsend  
+    SOURCES ldmsend.cpp
+)
+
+# ==============================================================================
+# lpqutil -- local product queue utility
+# ==============================================================================
+addLDMBinary(lpqutil   
     SOURCES pqutil.cpp
 )
 
 # ==============================================================================
-# Executable Definition (pqcat)
+# lpqcat -- cat a local queue.  The local version of rdmcat
 # ==============================================================================
-addLDMBinary(pqcat
+addLDMBinary(lpqcat
     SOURCES pqcat.cpp
 )
 
 # ==============================================================================
-# Executable Definition (regutil)
-# ==============================================================================
-addLDMBinary(regutil
-    SOURCES regutil.cpp
-)
-
-# ==============================================================================
-# Executable Definition (pqact)
-# The downstream action/file-dispatching engine 
-# ==============================================================================
-addLDMBinary(pqact
+# lpqact -- The downstream action/file-dispatching engine 
+addLDMBinary(lpqact
     SOURCES 
         pqact/pqact.cpp
         pqact/ActionFactory.cpp
@@ -137,4 +110,22 @@ addLDMBinary(pqact
         pqact/StateFile.cpp
         pqact/PqactConfig.cpp
         pqact/PqactParser.cpp
+)
+
+# ==============================================================================
+# Misc Tools for interacting with database or registry
+# FIXME: Haven't tested these much yet manually, only with test scripts
+
+# ==============================================================================
+# Executable Definition (ruldbutil)
+# ==============================================================================
+addLDMBinary(ruldbutil    
+    SOURCES uldbutil.cpp
+)
+
+# ==============================================================================
+# Executable Definition (rregutil)
+# ==============================================================================
+addLDMBinary(rregutil
+    SOURCES regutil.cpp
 )

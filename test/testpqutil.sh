@@ -3,7 +3,7 @@ set -e
 
 source ./test_utils.sh
 
-echo "=== 🚀 Setting up pqutil Interactive Integration Test ==="
+echo "=== 🚀 Setting up $BIN_PQUTIL Interactive Integration Test ==="
 TEST_DIR="/tmp/ldm_pqutil_test"
 rm -rf "$TEST_DIR"
 sandbox_ldm "$TEST_DIR"
@@ -20,14 +20,14 @@ echo -n "Hello pqutil!" > "$DUMMY_PAYLOAD"
 PAYLOAD_SIZE=$(wc -c < "$DUMMY_PAYLOAD" | awk '{print $1}')
 
 echo "=== Phase I: Creating Product Queue ==="
-$BIN_DIR/pqcreate -c -s 5M -q "$QUEUE_PATH"
+$BIN_DIR/$BIN_PQCREATE -c -s 5M -q "$QUEUE_PATH"
 
-echo "=== Phase II: Driving pqutil via stdin (Heredoc) ==="
+echo "=== Phase II: Driving $BIN_PQUTIL via stdin (Heredoc) ==="
 PQUTIL_LOG="$LOG_DIR/pqutil_run.log"
 
 # We feed the interactive commands directly into pqutil's stdin.
 # We test setting state, showing state, and assembling a product.
-$BIN_DIR/pqutil "$QUEUE_PATH" << EOF > "$PQUTIL_LOG" 2>&1
+$BIN_DIR/$BIN_PQUTIL "$QUEUE_PATH" << EOF > "$PQUTIL_LOG" 2>&1
 stats
 set feedtype EXP
 show feedtype
@@ -39,7 +39,7 @@ stats
 quit
 EOF
 
-echo "=== Phase III: Verifying pqutil Output ==="
+echo "=== Phase III: Verifying $BIN_PQUTIL Output ==="
 PASSED=true
 
 # 1. Verify 'stats' command executed successfully
@@ -64,29 +64,29 @@ PQCAT_LOG="$LOG_DIR/pqcat.log"
 PQCAT_OUT="$DATA_DIR/pqcat_out.txt"
 
 # We use pqcat to dump the queue and see if our manually constructed product is there
-if $BIN_DIR/pqcat -v -q "$QUEUE_PATH" -f EXP -l "$PQCAT_LOG" > "$PQCAT_OUT"; then
+if $BIN_DIR/$BIN_PQCAT -v -q "$QUEUE_PATH" -f EXP -l "$PQCAT_LOG" > "$PQCAT_OUT"; then
     if grep -q "Hello pqutil!" "$PQCAT_OUT"; then
         echo "✅ SUCCESS: The 'new' -> 'put' -> 'write' command sequence successfully built and inserted the product!"
     else
-        echo "❌ FAILURE: pqcat ran, but the payload 'Hello pqutil!' was missing from the queue."
+        echo "❌ FAILURE: $BIN_PQCAT ran, but the payload 'Hello pqutil!' was missing from the queue."
         PASSED=false
     fi
 else
-    echo "❌ FAILURE: pqcat failed to read the queue."
+    echo "❌ FAILURE: $BIN_PQCAT failed to read the queue."
     cat "$PQCAT_LOG"
     PASSED=false
 fi
 
 if [ "$PASSED" = true ]; then
     echo "======================================================="
-    echo " 🎉 ALL PQUTIL INTERACTIVE TESTS PASSED! 🎉"
+    echo " 🎉 ALL $BIN_PQUTIL INTERACTIVE TESTS PASSED! 🎉"
     echo "======================================================="
     rm -rf "$TEST_DIR"
     exit 0
 else
     echo "======================================================="
-    echo " 🚨 PQUTIL TEST FAILED 🚨"
-    echo "--- Dump of pqutil output ---"
+    echo " 🚨 $BIN_PQUTIL TEST FAILED 🚨"
+    echo "--- Dump of $BIN_PQUTIL output ---"
     cat "$PQUTIL_LOG"
     echo "======================================================="
     exit 1

@@ -2,7 +2,7 @@ set -e
 
 source ./test_utils.sh
 
-echo "=== 🚀 Setting up LDM State Resume Integration Test ==="
+echo "=== 🚀 Setting up $BIN_LDMD State Resume Integration Test ==="
 
 TEST_DIR="/tmp/ldm_state_resume_test"
 rm -rf "$TEST_DIR"
@@ -27,26 +27,26 @@ printf 'EXP\t^(test_.*\\.xml)$\tFILE\t-overwrite -close\t%s/var/data/\\1\n' "$DO
 
 DOWN_CONF="$DOWN_DIR/etc/ldmd.conf"
 echo "REQUEST EXP \"^(test_.*\.xml)$\" 127.0.0.1:6000" > "$DOWN_CONF"
-echo "EXEC \"$BIN_DIR/pqact -x -d $DOWN_DIR -l $DOWN_DIR/var/logs/pqact.log -o 3600 -i 1 -f EXP -q $DOWN_DIR/var/queues/down.pq $DOWN_PQACT_CONF\"" >> "$DOWN_CONF"
+echo "EXEC \"$BIN_DIR/$BIN_PQACT -x -d $DOWN_DIR -l $DOWN_DIR/var/logs/pqact.log -o 3600 -i 1 -f EXP -q $DOWN_DIR/var/queues/down.pq $DOWN_PQACT_CONF\"" >> "$DOWN_CONF"
 
 echo "=== Creating Product Queues ==="
-$BIN_DIR/pqcreate -c -s 10M -q "$UP_DIR/var/queues/up.pq"
-$BIN_DIR/pqcreate -c -s 10M -q "$DOWN_DIR/var/queues/down.pq"
+$BIN_DIR/$BIN_PQCREATE -c -s 10M -q "$UP_DIR/var/queues/up.pq"
+$BIN_DIR/$BIN_PQCREATE -c -s 10M -q "$DOWN_DIR/var/queues/down.pq"
 
 echo "=== [Phase 1] Starting Upstream & Downstream (Ports 6000/6001) ==="
-$BIN_DIR/ldmd -x -P 6000 -q "$UP_DIR/var/queues/up.pq" -l - "$UP_CONF" > "$UP_DIR/var/logs/ldmd.log" 2>&1 &
+$BIN_DIR/$BIN_LDMD -x -P 6000 -q "$UP_DIR/var/queues/up.pq" -l - "$UP_CONF" > "$UP_DIR/var/logs/ldmd.log" 2>&1 &
 UP_PID=$!
 
 # FIX: Run from the base downstream directory so relative "var/run" resolves correctly
 cd "$DOWN_DIR" || exit 1
-$BIN_DIR/ldmd -x -P 6001 -q "$DOWN_DIR/var/queues/down.pq" -l - "$DOWN_CONF" > "$DOWN_DIR/var/logs/ldmd_run1.log" 2>&1 &
+$BIN_DIR/$BIN_LDMD -x -P 6001 -q "$DOWN_DIR/var/queues/down.pq" -l - "$DOWN_CONF" > "$DOWN_DIR/var/logs/ldmd_run1.log" 2>&1 &
 DOWN_PID=$!
 cd - > /dev/null
 
 sleep 4
 
 echo "=== [Phase 2] Inserting Product 1 ==="
-$BIN_DIR/pqinsert -q "$UP_DIR/var/queues/up.pq" -f EXP -p "test_state_1.xml" "$DUMMY_1"
+$BIN_DIR/$BIN_PQINSERT -q "$UP_DIR/var/queues/up.pq" -f EXP -p "test_state_1.xml" "$DUMMY_1"
 wake_ldm_daemon $UP_PID
 sleep 4
 
@@ -80,7 +80,7 @@ sleep 2
 echo "=== [Phase 5] Restarting Downstream to Resume Feed ==="
 # FIX: Run from the base downstream directory
 cd "$DOWN_DIR" || exit 1
-$BIN_DIR/ldmd -x -P 6001 -q "$DOWN_DIR/var/queues/down.pq" -l - "$DOWN_CONF" > "$DOWN_DIR/var/logs/ldmd_run2.log" 2>&1 &
+$BIN_DIR/$BIN_LDMD -x -P 6001 -q "$DOWN_DIR/var/queues/down.pq" -l - "$DOWN_CONF" > "$DOWN_DIR/var/logs/ldmd_run2.log" 2>&1 &
 DOWN_PID_2=$!
 cd - > /dev/null
 sleep 6
@@ -104,18 +104,18 @@ else
     PASSED=false
 fi
 
-echo "=== Shutting down LDMs ==="
+echo "=== Shutting down $BIN_LDMD (s) ==="
 stop_ldm_daemon $DOWN_PID_2
 stop_ldm_daemon $UP_PID
 
 if [ "$PASSED" = true ]; then
     echo "======================================================="
-    echo " 🎉 LDM Offline Resume & State Tracking Test Passed! 🎉"
+    echo " 🎉 $BIN_LDMD Offline Resume & State Tracking Test Passed! 🎉"
     echo "======================================================="
     exit 0
 else
     echo "======================================================="
-    echo " 🚨 LDM Offline Resume Test Failed 🚨"
+    echo " 🚨 $BIN_LDMD Offline Resume Test Failed 🚨"
     echo "======================================================="
     exit 1
 fi

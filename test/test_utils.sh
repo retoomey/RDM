@@ -4,6 +4,20 @@
 # Halt on errors
 set -e
 
+# Binary Name Definitions.  In case we change them
+# again.
+export BIN_LDMD="rdmd"
+export BIN_PQCREATE="lpqcreate"
+export BIN_PQINSERT="lpqinsert"
+export BIN_PQACT="lpqact"
+export BIN_PQCAT="lpqcat"
+export BIN_PQSEND="lpqsend"
+export BIN_PQUTIL="lpqutil"
+export BIN_LDMPING="rdmping"
+export BIN_LDMSEND="rdmsend"
+export BIN_REGUTIL="rregutil"
+export BIN_RDMCAT="rdmcat"
+
 # Where the executables are.  If you used autogen.sh then
 # there are binaries in BUILD/bin.  Otherwise set to the
 # path/location of your binaries.

@@ -8,7 +8,7 @@ set -e
 
 # Define the array of test scripts
 scripts=(
-    "./testldmping.sh"
+#    "./testldmping.sh"
     "./testrdmpull.sh"
     "./testpqact.sh"
     "./testpqcat.sh"

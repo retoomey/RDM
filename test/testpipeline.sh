@@ -34,21 +34,21 @@ echo "ALLOW ANY ^127\.0\.0\.1$|^localhost$ .*" > "$UP_DIR/etc/ldmd.conf"
 echo "REQUEST EXP \".*\" 127.0.0.1:6000" > "$DOWN_DIR/etc/ldmd.conf"
 
 echo "=== Creating Expanded Product Queues ($Q_SIZE) ==="
-"$BIN_DIR/pqcreate" -c -s "$Q_SIZE" -S 10000 -q "$UP_DIR/var/queues/up.pq"
-"$BIN_DIR/pqcreate" -c -s "$Q_SIZE" -S 10000 -q "$DOWN_DIR/var/queues/down.pq"
+"$BIN_DIR/$BIN_PQCREATE" -c -s "$Q_SIZE" -S 10000 -q "$UP_DIR/var/queues/up.pq"
+"$BIN_DIR/$BIN_PQCREATE" -c -s "$Q_SIZE" -S 10000 -q "$DOWN_DIR/var/queues/down.pq"
 
-echo "=== Starting Upstream LDM Daemon (Port 6000) ==="
-"$BIN_DIR/ldmd" -x -P 6000 -q "$UP_DIR/var/queues/up.pq" -l - "$UP_DIR/etc/ldmd.conf" > "$UP_DIR/var/logs/ldmd_up_phase1.log" 2>&1 &
+echo "=== Starting Upstream $BIN_LDMD Daemon (Port 6000) ==="
+"$BIN_DIR/$BIN_LDMD" -x -P 6000 -q "$UP_DIR/var/queues/up.pq" -l - "$UP_DIR/etc/ldmd.conf" > "$UP_DIR/var/logs/ldmd_up_phase1.log" 2>&1 &
 UP_PID=$!
 
 # ---------------------------------------------------------
 # PHASE I: TEST "HEREIS" PATHWAY
 # ---------------------------------------------------------
-echo "=== Starting Downstream LDM Daemon (Phase I: HEREIS) ==="
+echo "=== Starting Downstream $BIN_LDMD Daemon (Phase I: HEREIS) ==="
 cd "$DOWN_DIR/var/run" || exit 1
 # We set -H 16384. Because our test payload is 1KB, it will easily fit 
 # under the 16KB threshold, guaranteeing the HEREIS pathway is exercised.
-"$BIN_DIR/ldmd" -x -P 6001 -N -H 16384 -q "$DOWN_DIR/var/queues/down.pq" -l - "$DOWN_DIR/etc/ldmd.conf" > "$DOWN_DIR/var/logs/ldmd_down_phase1.log" 2>&1 &
+"$BIN_DIR/$BIN_LDMD" -x -P 6001 -N -H 16384 -q "$DOWN_DIR/var/queues/down.pq" -l - "$DOWN_DIR/etc/ldmd.conf" > "$DOWN_DIR/var/logs/ldmd_down_phase1.log" 2>&1 &
 DOWN_PID=$!
 cd - > /dev/null
 
@@ -69,11 +69,11 @@ wait "$UP_PID" 2>/dev/null || true
 rm -f "$UP_DIR/var/queues/up.pq" "$DOWN_DIR/var/queues/down.pq"
 
 echo "=== Recreating Expanded Product Queues ($Q_SIZE) ==="
-"$BIN_DIR/pqcreate" -c -s "$Q_SIZE" -S 10000 -q "$UP_DIR/var/queues/up.pq"
-"$BIN_DIR/pqcreate" -c -s "$Q_SIZE" -S 10000 -q "$DOWN_DIR/var/queues/down.pq"
+"$BIN_DIR/$BIN_PQCREATE" -c -s "$Q_SIZE" -S 10000 -q "$UP_DIR/var/queues/up.pq"
+"$BIN_DIR/$BIN_PQCREATE" -c -s "$Q_SIZE" -S 10000 -q "$DOWN_DIR/var/queues/down.pq"
 
-echo "=== Restarting Upstream LDM Daemon (Port 6000) ==="
-"$BIN_DIR/ldmd" -x -P 6000 -q "$UP_DIR/var/queues/up.pq" -l - "$UP_DIR/etc/ldmd.conf" > "$UP_DIR/var/logs/ldmd_up_phase2.log" 2>&1 &
+echo "=== Restarting Upstream $BIN_LDMD Daemon (Port 6000) ==="
+"$BIN_DIR/$BIN_LDMD" -x -P 6000 -q "$UP_DIR/var/queues/up.pq" -l - "$UP_DIR/etc/ldmd.conf" > "$UP_DIR/var/logs/ldmd_up_phase2.log" 2>&1 &
 UP_PID=$!
 
 # ---------------------------------------------------------
@@ -83,7 +83,7 @@ echo "=== Starting Downstream LDM Daemon (Phase II: COMINGSOON) ==="
 cd "$DOWN_DIR/var/run" || exit 1
 # We keep -H 16384. Because our payload is 512KB, it will drastically exceed 
 # the 16KB threshold, forcing the COMINGSOON -> BLKDATA transaction pathway.
-"$BIN_DIR/ldmd" -x -P 6001 -H 16384 -q "$DOWN_DIR/var/queues/down.pq" -l - "$DOWN_DIR/etc/ldmd.conf" > "$DOWN_DIR/var/logs/ldmd_down_phase2.log" 2>&1 &
+"$BIN_DIR/$BIN_LDMD" -x -P 6001 -H 16384 -q "$DOWN_DIR/var/queues/down.pq" -l - "$DOWN_DIR/etc/ldmd.conf" > "$DOWN_DIR/var/logs/ldmd_down_phase2.log" 2>&1 &
 DOWN_PID=$!
 cd - > /dev/null
 
@@ -94,7 +94,7 @@ LARGE_ITERATIONS=$((ITERATIONS / 10))
 # Removed $UP_PID
 "$BIN_DIR/testPipeline" "$UP_DIR/var/queues/up.pq" "$DOWN_DIR/var/queues/down.pq" "$LARGE_ITERATIONS" 512
 
-echo -e "\n🛑 Tearing down LDM pipeline test environments..."
+echo -e "\n🛑 Tearing down $BIN_LDMD pipeline test environments..."
 kill -TERM "$DOWN_PID" "$UP_PID" 2>/dev/null || true
 wait "$DOWN_PID" 2>/dev/null || true
 wait "$UP_PID" 2>/dev/null || true

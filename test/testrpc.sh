@@ -9,7 +9,7 @@ set -e
 
 source ./test_utils.sh
 
-echo "=== Setting up LDM RPC Network Test Environment ==="
+echo "=== Setting up $BIN_LDMD RPC Network Test Environment ==="
 
 # 1. Define workspace and tool paths (assuming unified bin directory)
 TEST_DIR="/tmp/ldm_rpc_test_env"
@@ -48,23 +48,23 @@ DOWN_CONF="$DOWN_DIR/etc/ldmd.conf"
 # Request the data from the Upstream LDM daemon listening on port 6000
 echo "REQUEST EXP \"^(test_.*\.xml)$\" 127.0.0.1:6000" > "$DOWN_CONF"
 # Start the downstream pqact
-echo "EXEC \"$BIN_DIR/pqact -x -d $DOWN_DIR -l $DOWN_DIR/var/logs/pqact.log -o 3600 -i 1 -f EXP -q $DOWN_DIR/var/queues/down.pq $DOWN_PQACT_CONF\"" >> "$DOWN_CONF"
+echo "EXEC \"$BIN_DIR/$BIN_PQACT -x -d $DOWN_DIR -l $DOWN_DIR/var/logs/pqact.log -o 3600 -i 1 -f EXP -q $DOWN_DIR/var/queues/down.pq $DOWN_PQACT_CONF\"" >> "$DOWN_CONF"
 
 # 6. Create the product queues
 echo "=== Creating Product Queues ==="
-$BIN_DIR/pqcreate -c -s 10M -q "$UP_DIR/var/queues/up.pq"
-$BIN_DIR/pqcreate -c -s 10M -q "$DOWN_DIR/var/queues/down.pq"
+$BIN_DIR/$BIN_PQCREATE -c -s 10M -q "$UP_DIR/var/queues/up.pq"
+$BIN_DIR/$BIN_PQCREATE -c -s 10M -q "$DOWN_DIR/var/queues/down.pq"
 
 # 7. Start the Daemons
-echo "=== Starting Upstream LDM Daemon (Port 6000) ==="
-$BIN_DIR/ldmd -x -P 6000 -q "$UP_DIR/var/queues/up.pq" -l - "$UP_CONF" > "$UP_DIR/var/logs/ldmd.log" 2>&1 &
+echo "=== Starting Upstream $BIN_LDMD Daemon (Port 6000) ==="
+$BIN_DIR/$BIN_LDMD -x -P 6000 -q "$UP_DIR/var/queues/up.pq" -l - "$UP_CONF" > "$UP_DIR/var/logs/ldmd.log" 2>&1 &
 UP_PID=$!
 
-echo "=== Starting Downstream LDM Daemon (Port 6001) ==="
+echo "=== Starting Downstream $BIN_LDMD Daemon (Port 6001) ==="
 # cd into the test environment so the .info state file drops in var/run
 cd "$DOWN_DIR/var/run" || exit 1
 
-$BIN_DIR/ldmd -x -P 6001 -q "$DOWN_DIR/var/queues/down.pq" -l - "$DOWN_CONF" > "$DOWN_DIR/var/logs/ldmd.log" 2>&1 &
+$BIN_DIR/$BIN_LDMD -x -P 6001 -q "$DOWN_DIR/var/queues/down.pq" -l - "$DOWN_CONF" > "$DOWN_DIR/var/logs/ldmd.log" 2>&1 &
 DOWN_PID=$!
 
 # Return to the previous directory
@@ -74,8 +74,8 @@ cd - > /dev/null
 sleep 4 
 
 # 8. Insert the dummy XML file into the UPSTREAM queue
-echo "=== Inserting XML into UPSTREAM via pqinsert ==="
-$BIN_DIR/pqinsert -x -l "$UP_DIR/var/logs/pqinsert.log" \
+echo "=== Inserting XML into UPSTREAM via $BIN_PQINSERT ==="
+$BIN_DIR/$BIN_PQINSERT -x -l "$UP_DIR/var/logs/pqinsert.log" \
           -q "$UP_DIR/var/queues/up.pq" \
           -f EXP \
           -p "test_weather.xml" \
@@ -104,20 +104,20 @@ else
 fi
 
 # 10. Tear down the daemons safely
-echo "=== Shutting down LDMs ==="
+echo "=== Shutting down $BIN_LDMD (s) ==="
 stop_ldm_daemon $DOWN_PID
 stop_ldm_daemon $UP_PID
 
 if [ "$PASSED" = true ]; then
     echo "======================================================="
-    echo " 🎉 LDM multi server test passed! 🎉"
+    echo " 🎉 $BIN_LDMD multi server test passed! 🎉"
     echo "Upstream log:   cat $UP_DIR/var/logs/ldmd.log"
     echo "Downstream log: cat $DOWN_DIR/var/logs/ldmd.log"
     echo "======================================================="
     exit 0
 else
     echo "======================================================="
-    echo " 🚨 LDM multi server test failed 🚨"
+    echo " 🚨 $BIN_LDMD multi server test failed 🚨"
     echo "======================================================="
     exit 1
 fi

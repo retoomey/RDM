@@ -18,12 +18,12 @@ sandbox_ldm "$UP_DIR"
 UP_CONF="$UP_DIR/etc/ldmd.conf"
 echo "ALLOW ANY ^127\.0\.0\.1$|^localhost$ .*" > "$UP_CONF"
 
-echo "=== Creating Product Queue ==="
-$BIN_DIR/pqcreate -c -s 2M -q "$UP_DIR/var/queues/up.pq"
+echo "=== Creating Product Queue with $BIN_PQCREATE ==="
+$BIN_DIR/$BIN_PQCREATE -c -s 2M -q "$UP_DIR/var/queues/up.pq"
 
-echo "=== Starting Upstream LDM Daemon (Port $LDM_PORT) ==="
+echo "=== Starting Upstream $BIN_LDMD Daemon (Port $LDM_PORT) ==="
 cd "$UP_DIR/var/run" || exit 1
-$BIN_DIR/ldmd -x -P $LDM_PORT -q "$UP_DIR/var/queues/up.pq" -l - "$UP_CONF" > "$UP_DIR/var/logs/ldmd.log" 2>&1 &
+$BIN_DIR/$BIN_LDMD -x -P $LDM_PORT -q "$UP_DIR/var/queues/up.pq" -l - "$UP_CONF" > "$UP_DIR/var/logs/ldmd.log" 2>&1 &
 UP_PID=$!
 cd - > /dev/null
 
@@ -33,10 +33,10 @@ sleep 2
 echo "=== Test 1: Ping Active Server ==="
 # -i 0 means one trip (exit immediately after one ping).
 PING_LOG="$TEST_DIR/ping_active.log"
-if $BIN_DIR/ldmping -v -i 0 -P $LDM_PORT -h localhost > "$PING_LOG" 2>&1; then
-    echo "✅ SUCCESS: ldmping successfully detected the active server (Exit code 0)."
+if $BIN_DIR/$BIN_LDMPING -v -i 0 -P $LDM_PORT -h localhost > "$PING_LOG" 2>&1; then
+    echo "✅ SUCCESS: $BIN_LDMPING successfully detected the active server (Exit code 0)."
 else
-    echo "❌ FAILURE: ldmping failed to detect the active server."
+    echo "❌ FAILURE: $BIN_LDMPING failed to detect the active server."
     cat "$PING_LOG"
     kill -TERM $UP_PID
     exit 1
@@ -52,19 +52,19 @@ else
     exit 1
 fi
 
-echo "=== Shutting down LDM ==="
+echo "=== Shutting down $BIN_LDMD ==="
 kill -TERM $UP_PID
 wait $UP_PID 2>/dev/null || true
 
 echo "=== Test 2: Ping Inactive Server ==="
 PING_DEAD_LOG="$TEST_DIR/ping_dead.log"
 # This SHOULD fail, so we expect a non-zero exit code.
-if $BIN_DIR/ldmping -v -i 0 -P $LDM_PORT -h localhost -t 3 > "$PING_DEAD_LOG" 2>&1; then
-    echo "❌ FAILURE: ldmping incorrectly reported success for a dead server."
+if $BIN_DIR/$BIN_LDMPING -v -i 0 -P $LDM_PORT -h localhost -t 3 > "$PING_DEAD_LOG" 2>&1; then
+    echo "❌ FAILURE: $BIN_LDMPING incorrectly reported success for a dead server."
     cat "$PING_DEAD_LOG"
     exit 1
 else
-    echo "✅ SUCCESS: ldmping correctly returned a failure code for a dead server."
+    echo "✅ SUCCESS: $BIN_LDMPING correctly returned a failure code for a dead server."
 fi
 
 # It shouldn't say RESPONDING
@@ -77,7 +77,7 @@ else
 fi
 
 echo "======================================================="
-echo " 🎉 ALL LDMPING TESTS PASSED! 🎉"
+echo " 🎉 ALL $BIN_LDMPIN TESTS PASSED! 🎉"
 echo "======================================================="
 rm -rf "$TEST_DIR"
 exit 0

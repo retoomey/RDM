@@ -16,14 +16,14 @@ LDMD_CONF="$TEST_DIR/etc/ldmd.conf"
 # to the EXEC rule so pqact doesn't immediately crash.
 cat << EOF > "$LDMD_CONF"
 ALLOW ANY ^127\.0\.0\.1$|^localhost$ .*
-EXEC "$BIN_DIR/pqact -x -d $TEST_DIR -l $TEST_DIR/var/logs/pqact.log -q $TEST_DIR/var/queues/ldm.pq -i 15 /dev/null"
+EXEC "$BIN_DIR/$BIN_PQACT -x -d $TEST_DIR -l $TEST_DIR/var/logs/pqact.log -q $TEST_DIR/var/queues/ldm.pq -i 15 /dev/null"
 EOF
 
 echo "=== Creating Product Queue ==="
-$BIN_DIR/pqcreate -c -s 2M -q "$TEST_DIR/var/queues/ldm.pq"
+$BIN_DIR/$BIN_PQCREATE -c -s 2M -q "$TEST_DIR/var/queues/ldm.pq"
 
-echo "=== Starting LDM Daemon ==="
-$BIN_DIR/ldmd -P 6005 -q "$TEST_DIR/var/queues/ldm.pq" -l - "$LDMD_CONF" > "$TEST_DIR/var/logs/ldmd.log" 2>&1 &
+echo "=== Starting $BIN_LDMD Daemon ==="
+$BIN_DIR/$BIN_LDMD -P 6005 -q "$TEST_DIR/var/queues/ldm.pq" -l - "$LDMD_CONF" > "$TEST_DIR/var/logs/ldmd.log" 2>&1 &
 LDMD_PID=$!
 
 # Give the daemon a moment to fully initialize
@@ -57,7 +57,7 @@ else
     PASSED=false
 fi
 
-echo "=== Shutting down LDM (PID $LDMD_PID) ==="
+echo "=== Shutting down $BIN_LDMD (PID $LDMD_PID) ==="
 kill -TERM $LDMD_PID
 wait $LDMD_PID 2>/dev/null || true
 

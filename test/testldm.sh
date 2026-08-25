@@ -20,7 +20,7 @@ set -e
 
 source ./test_utils.sh
 
-echo "=== 🚀 Setting up LDM Integration Test Environment ==="
+echo "=== 🚀 Setting up $BIN_LDMD Integration Test Environment ==="
 
 # Define workspace and tool paths
 TEST_DIR="/tmp/ldm_test_env"
@@ -55,17 +55,17 @@ printf 'EXP\t^(test_.*\\.xml)$\tEXEC\tsh -c "echo Processed > %s/var/data/exec_s
 # CRITICAL: The EXEC command MUST be wrapped in double quotes!
 # FIX: Added '-i 1' so pqact polls every 1 second instead of missing the SIGCONT from pqinsert.
 LDMD_CONF="$TEST_DIR/etc/ldmd.conf"
-echo "EXEC \"$BIN_DIR/pqact -x -d $TEST_DIR -l $TEST_DIR/var/logs/pqact.log -o 3600 -i 1 -f EXP -q $TEST_DIR/var/queues/ldm.pq $PQACT_CONF\"" > "$LDMD_CONF"
+echo "EXEC \"$BIN_DIR/$BIN_PQACT -x -d $TEST_DIR -l $TEST_DIR/var/logs/pqact.log -o 3600 -i 1 -f EXP -q $TEST_DIR/var/queues/ldm.pq $PQACT_CONF\"" > "$LDMD_CONF"
 
 # 6. Create the product queue
 echo "=== Creating Product Queue ==="
-$BIN_DIR/pqcreate -c -s 10M -q "$TEST_DIR/var/queues/ldm.pq"
+$BIN_DIR/$BIN_PQCREATE -c -s 10M -q "$TEST_DIR/var/queues/ldm.pq"
 
 # 7. Start the LDM daemon
-echo "=== Starting LDM Daemon on port $LDM_PORT ==="
+echo "=== Starting $BIN_LDMD Daemon on port $LDM_PORT ==="
 # We use "-l -" to force ldmd to stay in the foreground of this background task,
 # allowing us to reliably capture its PID for the kill command later.
-$BIN_DIR/ldmd -x -P "$LDM_PORT" -q "$TEST_DIR/var/queues/ldm.pq" \
+$BIN_DIR/$BIN_LDMD -x -P "$LDM_PORT" -q "$TEST_DIR/var/queues/ldm.pq" \
       -l - \
       "$LDMD_CONF" > "$TEST_DIR/var/logs/ldmd.log" 2>&1 &
 LDMD_PID=$!
@@ -74,8 +74,8 @@ LDMD_PID=$!
 sleep 3 
 
 # 8. Insert the dummy XML file into the queue
-echo "=== Inserting XML via pqinsert ==="
-$BIN_DIR/pqinsert -x -l "$TEST_DIR/var/logs/pqinsert.log" \
+echo "=== Inserting XML via $BIN_PQINSERT ==="
+$BIN_DIR/$BIN_PQINSERT -x -l "$TEST_DIR/var/logs/pqinsert.log" \
           -q "$TEST_DIR/var/queues/ldm.pq" \
           -f EXP \
           -p "test_weather.xml" \
@@ -95,8 +95,8 @@ if [ -f "$EXPECTED_OUTPUT" ]; then
     diff -u "$DUMMY_XML" "$EXPECTED_OUTPUT" && echo "✅ SUCCESS: File contents match perfectly."
 else
     echo "❌ FAILURE: The file was not written to disk."
-    echo "Check pqact log: cat $TEST_DIR/var/logs/pqact.log"
-    echo "Check ldmd log:  cat $TEST_DIR/var/logs/ldmd.log"
+    echo "Check $BIN_PQACT log: cat $TEST_DIR/var/logs/pqact.log"
+    echo "Check $BIN_LDMD log:  cat $TEST_DIR/var/logs/ldmd.log"
     PASSED=false
 fi
 
@@ -109,18 +109,18 @@ else
 fi
 
 # 10. Tear down the daemon safely
-echo "=== Shutting down LDM (PID $LDMD_PID) ==="
+echo "=== Shutting down $BIN_LDMD (PID $LDMD_PID) ==="
 kill -TERM $LDMD_PID
 wait $LDMD_PID 2>/dev/null || true
 
 if [ "$PASSED" = true ]; then
     echo "======================================================="
-    echo " 🎉 LDM single server test passed! 🎉"
+    echo " 🎉 $BIN_LDMD single server test passed! 🎉"
     echo "======================================================="
     exit 0
 else
     echo "======================================================="
-    echo " 🚨 LDM single server test failed 🚨"
+    echo " 🚨 $BIN_LDMD single server test failed 🚨"
     echo "======================================================="
     exit 1
 fi
