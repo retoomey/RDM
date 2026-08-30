@@ -75,7 +75,6 @@ if [ "$PASSED" = true ]; then
     # Detach trap and manually clean up on success
     trap - EXIT
     cleanup
-    rm -rf "$TEST_DIR"
     exit 0
 else
     echo "======================================================="

@@ -28,7 +28,6 @@ class PqSendApp : public QueueApp {
 private:
     std::string remoteHost_{"localhost"};
     unsigned int port_{388};
-    unsigned int interval_{15};
     unsigned int rpcTimeout_{25};
     unsigned int totalTimeo_{3600};
     
@@ -82,7 +81,7 @@ protected:
         RegisterOption('P', "port", "Set the port number (default: 388)", "388");
         RegisterOption('f', "feedtype", "Send products matching 'feedtype'", "ANY");
         RegisterOption('p', "pattern", "Send products matching 'pattern'", ".*");
-        RegisterOption('i', "interval", "Poll queue every 'interval' seconds (0 = run once)", "15");
+        RegisterFlag('1', "Run once: Exit when the end of the queue is reached");
         RegisterOption('t', "timeout", "RPC timeout in seconds", "25");
         RegisterOption('T', "TotalTimeo", "Terminate after this many seconds", "3600");
         RegisterOption('o', "offset", "Send products inserted no earlier than 'offset' seconds ago", "");
@@ -98,7 +97,6 @@ protected:
           return false;
         }
         if (IsSet('P')) port_ = std::stoul(GetOption('P'));
-        if (IsSet('i')) interval_ = std::stoul(GetOption('i'));
         if (IsSet('t')) rpcTimeout_ = std::stoul(GetOption('t'));
         if (IsSet('T')) totalTimeo_ = std::stoul(GetOption('T'));
         
@@ -148,6 +146,11 @@ protected:
             } else {
                 offerClass_.from_sec = now.tv_sec - offsetTs.tv_sec;
             }
+        }
+   
+        if (!positionalArgs_.empty()) {
+          LogError("Unexpected positional arguments provided (e.g., '{}'). lpqsend does not accept standalone parameters.", positionalArgs_[0]);
+          return false;
         }
 
         return true;
@@ -217,13 +220,13 @@ protected:
                     LogDebug("End of Queue reached. Flushing.");
                     client_->Flush();
                     
-                    if (interval_ == 0) {
+                    if (IsSet('1')){
                         SignalManager::TriggerShutdown(); // Exit if one-shot mode
                         break;
                     }
                     
-                    // Sleep until new products arrive
-                    WaitOnQueue(interval_);
+                    // Wait for notification (no timeout)
+                    WaitOnQueue(0);
                 } else if (status == EAGAIN || status == EACCES) {
                     LogDebug("Queue locked, retrying...");
                     usleep(100000); // 100ms

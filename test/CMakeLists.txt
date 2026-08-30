@@ -95,8 +95,23 @@ addLDMTest(SOURCES testTimestamp.cpp)
 addLDMTest(SOURCES testLdmConf.cpp)
 
 # Pqact configuration file test
-# Need to organize better first
-#addLDMTest(SOURCES testPqactConf.cpp)
+# FIXME: We 'could' build a pqactlib to avoid
+# duplicate compiling here
+addLDMTest(SOURCES 
+   testPqactConf.cpp
+   ../apps/pqact/PqactParser.cpp
+   ../apps/pqact/PqactConfig.cpp
+   ../apps/pqact/ActionFactory.cpp
+   ../apps/pqact/FileCache.cpp
+   ../apps/pqact/ExecAction.cpp
+   ../apps/pqact/FileAction.cpp
+   ../apps/pqact/PipeAction.cpp
+   ../apps/pqact/FileOpsUtil.cpp
+   ../apps/pqact/UnioEntry.cpp
+   ../apps/pqact/PipeEntry.cpp
+   ../apps/pqact/PipeBuffer.cpp
+ )
+target_include_directories(testPqactConf PRIVATE ${RDM_SOURCE_DIR}/apps/pqact)
 
 # Prod class (protocol2)
 addLDMTest(SOURCES testProdClass.cpp)

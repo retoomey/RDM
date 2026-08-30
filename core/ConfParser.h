@@ -7,12 +7,11 @@ namespace rdm {
 class ConfParser {
 public:
 
-  static ServerConfig
-  Parse(const std::string& filepath, unsigned int defaultPort = 388);
+  static bool Parse(const std::string& filepath, ServerConfig& config, unsigned int defaultPort = 388, bool syntaxOnly = false);
 
 private:
-  static bool
-  ParseRecursive(const std::string& filepath, ServerConfig& config, int depth, unsigned int defaultPort);
+  static bool ParseRecursive(const std::string& filepath, ServerConfig& config, int depth, unsigned int defaultPort, bool syntaxOnly = false);
+
   static std::vector<std::string>
   Tokenize(const std::string& line);
 };

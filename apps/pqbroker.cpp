@@ -55,7 +55,13 @@ protected:
     }
 
     int Run() override {
-        ServerConfig config = ConfParser::Parse(configPath_, ldmPort_);
+        ServerConfig config;
+        auto success = ConfParser::Parse(configPath_, config, ldmPort_);
+        if (!success){
+            LogFatal("pqbroker failed to parse {}",configPath_);
+            return EXIT_FAILURE;
+        }
+
         auto aclManager = std::make_unique<AclManager>(std::move(config.allowRules), std::move(config.acceptRules));
 
         if (!aclManager->RequiresServer()) {

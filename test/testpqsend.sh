@@ -50,8 +50,18 @@ printf "</large_data>\n" >> "$LARGE_PAYLOAD"
 "$BIN_DIR/$BIN_PQINSERT" -q "$CLIENT_QUEUE" -f EXP -p "TEST_LARGE_PRODUCT_002" "$LARGE_PAYLOAD"
 
 echo "=== Phase V: Launching C++ $BIN_PQSEND to Push Data ==="
-# Connect, push, and exit (-i 0)
-"$BIN_DIR/$BIN_PQSEND" -h localhost -P 38800 -q "$CLIENT_QUEUE" -f ANY -o 60 -i 0 -x > "$PQSEND_LOG" 2>&1
+echo "_________LOG $PQSEND_LOG"
+
+# Catch the failure so set -e doesn't instantly kill the script
+#if ! "$BIN_DIR/$BIN_PQSEND" -h localhost -P 38800 -q "$CLIENT_QUEUE" -f ANY -o 60 -1 -x > "$PQSEND_LOG" 2>&1; then
+#    echo "❌ FAILURE: $BIN_PQSEND crashed or rejected its arguments."
+#    PASSED=false
+#fi
+
+if ! "$BIN_DIR/$BIN_PQSEND" -h localhost -P 38800 -q "$CLIENT_QUEUE" -f ANY -o 60 -1 -x -l "$PQSEND_LOG"; then
+    echo "❌ FAILURE: $BIN_PQSEND crashed or rejected its arguments."
+    PASSED=false
+fi
 
 echo "=== Phase VI: Verifying Ingestion Success ==="
 PQCAT_OUT="$DATA_DIR/pqcat_out.txt"
@@ -91,7 +101,6 @@ if [ "$PASSED" = true ]; then
     echo "======================================================="
     echo " 🎉 ALL $BIN_PQSEND PUSH TESTS PASSED! 🎉"
     echo "======================================================="
-    rm -rf "$TEST_DIR"
     exit 0
 else
     echo "======================================================="

@@ -73,24 +73,25 @@ int LogInitialize(const char* id) {
 int log_set_destination(const char* dest) {
     if (g_is_injected) return 0; // Ignore standalone destination changes if injected
     if (dest == nullptr) return -1;
-    
     std::string d(dest);
     try {
         ::spdlog::drop_all();
         std::shared_ptr<::spdlog::logger> logger;
         
         if (d == "-") {
+            // Standard Error (Default)
             logger = ::spdlog::stderr_color_mt(g_progname);
-        } else if (d.empty()) {
+        } else if (d == "syslog") {
+            // System Logging Daemon
             logger = ::spdlog::syslog_logger_mt(g_progname, g_progname, LOG_PID, LOG_LOCAL0);
         } else {
+            // File Destination
             logger = ::spdlog::basic_logger_mt(g_progname, d);
         }
         
         ::spdlog::set_default_logger(logger);
         ::spdlog::flush_on(::spdlog::level::info);
         ::spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%P] [%^%l%$] [" + g_progname + "] %v");
-        
         // Reapply the standalone log level
         log_set_level(g_current_log_level);
         return 0;

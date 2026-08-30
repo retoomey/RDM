@@ -34,7 +34,6 @@ private:
     bool showProdOrigin_{false};
     bool queueSanityCheck_{false};
     bool dumpData_{false};
-    int interval_{0};
     ProdClass clss_;
     size_t nprods_{0};
     
@@ -95,7 +94,6 @@ protected:
     void ConfigureOptions() override {
         QueueApp::ConfigureOptions();
         RegisterFlag('d', "Dump full product data payload to stdout (default: metadata only)");
-        RegisterOption('i', "interval", "Poll queue after 'interval' secs (default 0)", "0");
         RegisterFlag('e', "Extended output format");
         RegisterFlag('S', "Print raw queue metrics for machine parsing");
         RegisterFlag('c', "Check, verify MD5 signature");
@@ -104,6 +102,7 @@ protected:
         RegisterOption('p', "pattern", "Interested in products matching 'pattern' (default '.*')", ".*");
         RegisterOption('f', "feedtype", "Scan for data of type 'feedtype' (default 'ANY')", "ANY");
         RegisterOption('o', "offset", "Set the 'from' time 'offset' secs before now", "");
+        RegisterFlag('w', "Watch mode: wait continuously for new products to arrive");
     }
 
     bool ProcessOptions() override {
@@ -112,9 +111,6 @@ protected:
         md5_check_ = IsSet('c');
         showProdOrigin_ = IsSet('O');
         queueSanityCheck_ = IsSet('s');
-        if (IsSet('i')) {
-            interval_ = std::stoi(GetOption('i'));
-        }
         Timestamp now = Timestamp::Now();
         clss_.from_sec = Timestamp::ZERO.tv_sec;
         clss_.from_usec = Timestamp::ZERO.tv_usec;
@@ -134,6 +130,11 @@ protected:
             }
         }
         clss_.specs.push_back({spec.feedtype, GetOption('p')});
+
+        if (!positionalArgs_.empty()) {
+          LogError("Unexpected positional arguments provided. lpqcat does not accept standalone parameters.");
+          return false;
+        }
 
         return true;
     }
@@ -181,18 +182,20 @@ protected:
             status = cursor_->sequence(Match::GreaterThan, clss_, callback, this);
                 
             if (status == 0) continue;
+
             if (status == static_cast<int>(PqStatus::End)) {
                 LogDebug("End of Queue");
+                if (!IsSet('w')) break; // Explicitly break if run-once is set
+                WaitOnQueue(0);        // Infinite event-driven wait (act as a tail)
+                continue;              // Jump straight back to the top of the loop
             } else if (status == EAGAIN || status == EACCES) {
-                LogDebug("Hit a lock");
+                LogDebug("Hit a lock, yielding...");
+                usleep(100000);        // Sleep 100ms to prevent CPU thrashing
+                continue;
             } else {
                 LogError("pq_sequence failed: {} (errno = {})", pq_->strerror(status), status);
                 return EXIT_FAILURE;
             }
-            if (interval_ == 0) break;
-
-            // Sleep until event
-            WaitOnQueue(interval_);
         }
 
         if (queueSanityCheck_) {

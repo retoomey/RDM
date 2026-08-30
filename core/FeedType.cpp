@@ -104,6 +104,7 @@ namespace {
 
     uint32_t ParseExpr(ParseState& ps);
 
+#if 0
     uint32_t ParsePrimary(ParseState& ps) {
         if (ps.err) return 0;
         uint32_t expr;
@@ -117,6 +118,54 @@ namespace {
                 auto& map = GetFeedMap();
                 auto it = map.find(lower_str);
                 if (it != map.end()) return it->second;
+                
+                ps.err = PARSE_ERR_UKFT;
+                return 0;
+            }
+            case TokenType::COMPLEMENT:
+                AdvanceToken(ps);
+                return ~ParsePrimary(ps);
+            case TokenType::LP:
+                AdvanceToken(ps);
+                expr = ParseExpr(ps);
+                if (ps.tok != TokenType::RP) {
+                    ps.err = PARSE_ERR_RP;
+                    return 0;
+                }
+                AdvanceToken(ps);
+                return expr;
+            default:
+                ps.err = PARSE_ERR_PRIM;
+                return 0;
+        }
+    }
+#endif
+    uint32_t ParsePrimary(ParseState& ps) {
+        if (ps.err) return 0;
+        uint32_t expr;
+        switch (ps.tok) {
+            case TokenType::NAME: {
+                std::string lower_str = ps.name;
+                std::transform(lower_str.begin(), lower_str.end(), lower_str.begin(),
+                               [](unsigned char c) { return std::tolower(c); });
+                AdvanceToken(ps);
+                
+                auto& map = GetFeedMap();
+                auto it = map.find(lower_str);
+                if (it != map.end()) return it->second;
+                
+                // Fallback to parsing raw numbers (supports decimal '3', hex '0x03', octal '03')
+                try {
+                    size_t pos;
+                    unsigned long numeric_val = std::stoul(lower_str, &pos, 0);
+                    
+                    // Ensure the entire token was a valid number, not just the prefix
+                    if (pos == lower_str.length()) {
+                        return static_cast<uint32_t>(numeric_val);
+                    }
+                } catch (...) {
+                    // Silently fall through to the UKFT error if conversion fails
+                }
                 
                 ps.err = PARSE_ERR_UKFT;
                 return 0;

@@ -38,6 +38,12 @@ protected:
         // In pqmon, the debug flag (-x) also triggers the free-extents dump
         list_extents_ = IsSet('x'); 
 
+        // Catch phantom flags
+        if (!positionalArgs_.empty()) {
+          LogError("Unexpected positional arguments provided. lpqmon does not accept standalone parameters.");
+          return false;
+        }
+
         return true;
     }
 
@@ -142,7 +148,10 @@ protected:
 
             if (interval_ == 0) break;
             
-            WaitOnQueue(interval_);
+            // Unlike other apps, we're really a 'true' poller like 'top', so we should
+            // sleep and not posix wait on the queue flags
+            sleep(interval_); // Replaces WaitOnQueue(interval_) to prevent condition-variable spam
+            // WaitOnQueue(interval_);
         }
 
         return EXIT_SUCCESS;

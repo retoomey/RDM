@@ -134,6 +134,5 @@ echo "======================================================="
 echo " 🎉 ALL $BIN_RDMCAT TESTS PASSED! 🎉"
 echo "======================================================="
 
-rm -rf "$TEST_DIR"
 # The 'trap' takes care of the final LDM daemon shutdown
 exit 0

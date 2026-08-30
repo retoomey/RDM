@@ -50,7 +50,9 @@ static void writeConfig(const char* content) {
 
 static void test_parse_allow_rules(void) {
     writeConfig("ALLOW\tANY\t^127\\.0\\.0\\.1$|\t^.*$\n");
-    ServerConfig config = ConfParser::Parse(tmpConfigPath);
+    ServerConfig config;
+    auto success = ConfParser::Parse(tmpConfigPath, config, 388);
+    CU_ASSERT_TRUE(success);
     
     CU_ASSERT_TRUE(config.RequiresServer());
     CU_ASSERT_EQUAL(config.allowRules.size(), 1);
@@ -66,7 +68,10 @@ static void test_parse_allow_rules(void) {
 static void test_parse_exec_rules(void) {
     writeConfig("EXEC\t\"pqact -i 15\"\n");
     
-    ServerConfig config = ConfParser::Parse(tmpConfigPath);
+    ServerConfig config;
+    auto success = ConfParser::Parse(tmpConfigPath, config, 388);
+    CU_ASSERT_TRUE(success);
+
     CU_ASSERT_FALSE(config.RequiresServer());
     CU_ASSERT_EQUAL(config.execRules.size(), 1);
     CU_ASSERT_EQUAL(config.execRules[0].command.getArgc(), 3);
@@ -90,7 +95,10 @@ static void test_parse_complex_config(void) {
     );
     writeConfig(primaryBuffer);
 
-    ServerConfig config = ConfParser::Parse(tmpConfigPath);
+    ServerConfig config;
+    auto success = ConfParser::Parse(tmpConfigPath, config, 388);
+    CU_ASSERT_TRUE(success);
+
     CU_ASSERT_TRUE(config.RequiresServer());
     CU_ASSERT_EQUAL(config.execRules.size(), 1);
     CU_ASSERT_EQUAL(config.acceptRules.size(), 1);

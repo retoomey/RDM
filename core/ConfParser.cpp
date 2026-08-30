@@ -13,12 +13,8 @@
 
 namespace rdm {
 
-ServerConfig ConfParser::Parse(const std::string& filepath, unsigned int defaultPort) {
-    ServerConfig config;
-    if (!ParseRecursive(filepath, config, 0, defaultPort)) {
-        LogError("Failed to parse root configuration file: {}", filepath);
-    }
-    return config;
+bool ConfParser::Parse(const std::string& filepath, ServerConfig& config, unsigned int defaultPort, bool syntaxOnly) {
+    return ParseRecursive(filepath, config, 0, defaultPort, syntaxOnly);
 }
 
 std::vector<std::string> ConfParser::Tokenize(const std::string& line) {
@@ -54,7 +50,8 @@ std::vector<std::string> ConfParser::Tokenize(const std::string& line) {
     return tokens;
 }
 
-bool ConfParser::ParseRecursive(const std::string& filepath, ServerConfig& config, int depth, unsigned int defaultPort) {
+#if 0
+bool ConfParser::ParseRecursive(const std::string& filepath, ServerConfig& config, int depth, unsigned int defaultPort, bool syntaxOnly) {
     if (depth > 10) {
         LogError("Maximum nested INCLUDE depth exceeded at: {}", filepath);
         return false;
@@ -144,20 +141,163 @@ bool ConfParser::ParseRecursive(const std::string& filepath, ServerConfig& confi
             req.upstreamHost = sa->GetHost();
             req.port = sa->GetPort();
             config.requestRules.push_back(req);
-        }
-        else if (cmd == "INCLUDE") {
+        }else if (cmd == "INCLUDE") {
             if (tokens.size() != 2) {
                 LogError("INCLUDE rule requires 2 arguments. ({}:{})", filepath, lineNum);
                 continue;
             }
+
+            // NEW: Skip path resolution and file I/O if just checking syntax
+            if (syntaxOnly) {
+                //LogNotice("Syntax check: Skipping INCLUDE \"{}\"", tokens[1]);
+                continue;
+            }
+
             std::string includePath = tokens[1];
             if (!includePath.empty() && includePath[0] != '/') {
-                if (!includePath.empty() && includePath[0] != '/') {
-                  std::filesystem::path baseDir = std::filesystem::path(filepath).parent_path();
-                  includePath = (baseDir / includePath).string();
-                }
+                std::filesystem::path baseDir = std::filesystem::path(filepath).parent_path();
+                includePath = (baseDir / includePath).string();
             }
-            ParseRecursive(includePath, config, depth + 1, defaultPort);
+            // Pass syntaxOnly down to deeper recursions
+            ParseRecursive(includePath, config, depth + 1, defaultPort, syntaxOnly);
+        }else if (cmd == "RECEIVE" || cmd == "MULTICAST") {
+            LogWarning("Command '{}' unsupported without WANT_MULTICAST ({} {})", cmd, filepath, lineNum);
+        }
+        else {
+            LogWarning("Unknown command '{}' ignored. ({}:{})", cmd, filepath, lineNum);
+        }
+    }
+
+    return true;
+}
+#endif
+bool ConfParser::ParseRecursive(const std::string& filepath, ServerConfig& config, int depth, unsigned int defaultPort, bool syntaxOnly) {
+    if (depth > 10) {
+        LogError("Maximum nested INCLUDE depth exceeded at: {}", filepath);
+        return false;
+    }
+
+    std::ifstream file(filepath);
+    if (!file) {
+        LogError("Couldn't open LDM configuration-file \"{}\"", filepath);
+        return false;
+    }
+
+    std::string line;
+    int lineNum = 0;
+    bool hasErrors = false; // NEW: Track parse state
+
+    while (std::getline(file, line)) {
+        lineNum++;
+        auto tokens = Tokenize(line);
+        if (tokens.empty()) continue;
+
+        std::string cmd = tokens[0];
+        for (auto& c : cmd) c = std::toupper(static_cast<unsigned char>(c));
+
+        if (cmd == "ALLOW") {
+            if (tokens.size() < 3 || tokens.size() > 5) {
+                LogError("ALLOW rule requires 3 to 5 arguments. ({}:{})", filepath, lineNum);
+                hasErrors = true;
+                continue;
+            }
+            FeedType ft;
+            if (FeedType::Parse(tokens[1], ft) != FEEDTYPE_OK) {
+                hasErrors = true;
+                continue;
+            }
+            
+            std::string hostPattern = tokens[2];
+            std::string okPattern = (tokens.size() >= 4) ? tokens[3] : ".*";
+            std::string notPattern = (tokens.size() == 5) ? tokens[4] : "";
+
+            try {
+                config.allowRules.emplace_back(ft, hostPattern, okPattern, notPattern);
+            } catch (const std::exception& e) {
+                LogError("Failed to compile regex for ALLOW rule ({}:{}): {}", filepath, lineNum, e.what());
+                hasErrors = true;
+            }
+        }
+        else if (cmd == "ACCEPT") {
+            if (tokens.size() != 4) {
+                LogError("ACCEPT rule requires 4 arguments. ({}:{})", filepath, lineNum);
+                hasErrors = true;
+                continue;
+            }
+            FeedType ft;
+            if (FeedType::Parse(tokens[1], ft) != FEEDTYPE_OK) {
+                hasErrors = true;
+                continue;
+            }
+
+            try {
+                config.acceptRules.emplace_back(ft, tokens[2], tokens[3], true);
+            } catch (const std::exception& e) {
+                LogError("Failed to compile regex for ACCEPT rule ({}:{}): {}", filepath, lineNum, e.what());
+                hasErrors = true;
+            }
+        }
+        else if (cmd == "EXEC") {
+            if (tokens.size() != 2) {
+                LogError("EXEC rule requires exactly 2 arguments. ({}:{})", filepath, lineNum);
+                hasErrors = true;
+                continue;
+            }
+            try {
+                Wordexp words(tokens[1]);
+                ExecRule rule;
+                rule.command = std::move(words);
+                config.execRules.push_back(std::move(rule));
+            } catch (const std::invalid_argument& e) {
+                LogError("Couldn't decode EXEC command. ({}:{}): {}", filepath, lineNum, e.what());
+                hasErrors = true;
+            }
+        }
+        else if (cmd == "REQUEST") {
+            if (tokens.size() != 4) {
+                LogError("REQUEST rule requires 4 arguments. ({}:{})", filepath, lineNum);
+                hasErrors = true;
+                continue;
+            }
+            FeedType ft;
+            if (FeedType::Parse(tokens[1], ft) != FEEDTYPE_OK) {
+                hasErrors = true;
+                continue;
+            }
+
+            std::string hostSpec = tokens[3];
+            auto sa = ServiceAddr::Parse(hostSpec, "", defaultPort);
+            if (!sa) {
+                LogError("Invalid host/port specified in REQUEST rule ({}:{})", filepath, lineNum);
+                hasErrors = true;
+                continue;
+            }
+
+            RequestRule req;
+            req.feedtype = ft;
+            req.pattern = tokens[2];
+            req.upstreamHost = sa->GetHost();
+            req.port = sa->GetPort();
+            config.requestRules.push_back(req);
+        }
+        else if (cmd == "INCLUDE") {
+            if (tokens.size() != 2) {
+                LogError("INCLUDE rule requires 2 arguments. ({}:{})", filepath, lineNum);
+                hasErrors = true;
+                continue;
+            }
+            if (syntaxOnly) {
+                LogDebug("Syntax check: Skipping INCLUDE \"{}\"", tokens[1]);
+                continue;
+            }
+            std::string includePath = tokens[1];
+            if (!includePath.empty() && includePath[0] != '/') {
+                std::filesystem::path baseDir = std::filesystem::path(filepath).parent_path();
+                includePath = (baseDir / includePath).string();
+            }
+            if (!ParseRecursive(includePath, config, depth + 1, defaultPort, syntaxOnly)) {
+                hasErrors = true;
+            }
         }
         else if (cmd == "RECEIVE" || cmd == "MULTICAST") {
             LogWarning("Command '{}' unsupported without WANT_MULTICAST ({} {})", cmd, filepath, lineNum);
@@ -167,7 +307,8 @@ bool ConfParser::ParseRecursive(const std::string& filepath, ServerConfig& confi
         }
     }
 
-    return true;
+    // NEW: Return false if any errors were encountered
+    return !hasErrors; 
 }
 
 }

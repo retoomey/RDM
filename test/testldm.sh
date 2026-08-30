@@ -57,6 +57,20 @@ printf 'EXP\t^(test_.*\\.xml)$\tEXEC\tsh -c "echo Processed > %s/var/data/exec_s
 LDMD_CONF="$TEST_DIR/etc/ldmd.conf"
 echo "EXEC \"$BIN_DIR/$BIN_PQACT -x -d $TEST_DIR -l $TEST_DIR/var/logs/pqact.log -o 3600 -i 1 -f EXP -q $TEST_DIR/var/queues/ldm.pq $PQACT_CONF\"" > "$LDMD_CONF"
 
+# ==============================================================================
+# 5.5 Offline Syntax Validation (-n)
+# ==============================================================================
+echo "⚡ Phase 0: Offline Syntax Validation (-n) against generated ldmd.conf..."
+
+# Run the syntax checker and capture the exit code
+if "$BIN_DIR/$BIN_LDMD" -n ./rdmldmd.conf > "$TEST_DIR/var/logs/syntax_check.log" 2>&1; then
+    echo "✅ SUCCESS: Offline syntax validation passed."
+else
+    echo "❌ FAILURE: Offline syntax validation rejected ldmd.conf."
+    cat "$TEST_DIR/var/logs/syntax_check.log"
+    exit 1
+fi
+
 # 6. Create the product queue
 echo "=== Creating Product Queue ==="
 $BIN_DIR/$BIN_PQCREATE -c -s 10M -q "$TEST_DIR/var/queues/ldm.pq"

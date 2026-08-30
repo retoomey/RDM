@@ -189,7 +189,7 @@ void RdmEngine::StopEngine() {
         
         // Wait for the tree to collapse
         while (Reap(-1, 0) > 0) {}
-        if (!checkOnly_) (void) uldb_.Delete("");
+        (void) uldb_.Delete("");
     }
     (void)registry::close();
 }
@@ -247,6 +247,27 @@ void RdmEngine::ConfigureOptions() {
 bool RdmEngine::ProcessOptions() {
     if (!Application::ProcessOptions()) return false;
 
+    // 0. INTERCEPT -n FIRST (Stateless offline validation)
+    if (IsSet('n')) {
+        std::string configPath = positionalArgs_.empty() ? "ldmd.conf" : positionalArgs_[0];
+        unsigned int checkPort = IsSet('P') ? std::stoul(GetOption('P')) : 388;
+        
+        ServerConfig config;
+        bool success = ConfParser::Parse(configPath, config, checkPort, true);
+        
+        if (!success) {
+            LogWarning("Configuration-file \"{}\" parsed with errors.", configPath);
+            exit(EXIT_FAILURE);
+        } else if (config.allowRules.empty() && config.acceptRules.empty() &&
+                   config.execRules.empty() && config.requestRules.empty()) {
+            LogNotice("Configuration-file \"{}\" has no entries.", configPath);
+        } else {
+            LogNotice("Syntax check successful. Exiting.");
+        }
+        
+        exit(EXIT_SUCCESS);
+    }
+
     // Defaults should be from the registry.xml unless overridden
    
     // 1. INTERFACE (-I)
@@ -301,7 +322,6 @@ bool RdmEngine::ProcessOptions() {
     if (IsSet('N')) disableNagles_ = true;
     if (IsSet('D')) becomeDaemon_ = true;
     if (IsSet('H')) maxHereis_ = std::stoul(GetOption('H'));
-    checkOnly_ = IsSet('n');
 
     // 9. VALIDATION STEP
     auto maxLatency = registry::getUint(registry::RegistryKey::MaxLatency);
@@ -336,7 +356,11 @@ bool RdmEngine::Initialize() {
 int RdmEngine::Run() {
     int exitStatus = EXIT_SUCCESS;
     std::string configPath = registry::getLdmdConfigPath();
-    ServerConfig config = ConfParser::Parse(configPath, ldmPort_);
+    ServerConfig config;
+    if (!ConfParser::Parse(configPath, config, ldmPort_)) {
+        LogFatal("Failed to parse configuration file: {}", configPath);
+        return EXIT_FAILURE; 
+    }
     
     if (config.allowRules.empty() && config.acceptRules.empty() &&
         config.execRules.empty() && config.requestRules.empty()) {
@@ -344,7 +368,6 @@ int RdmEngine::Run() {
         return EXIT_FAILURE; // Safe to return here: no resources allocated yet
     }
     
-    if (!checkOnly_) {
         auto uldb_status = static_cast<int>(uldb_.Delete(""));
         if (uldb_status && static_cast<int>(UldbStatus::EXIST) != uldb_status) return EXIT_FAILURE;
         if (uldb_.Create("", maxClients_ * 1024) != UldbStatus::SUCCESS) return EXIT_FAILURE;
@@ -444,7 +467,6 @@ int RdmEngine::Run() {
         }
         LogNotice("RdmEngine tracked child shutdown complete.");
         // ==========================================================
-    }
     
     return exitStatus;
 }

@@ -16,7 +16,6 @@ private:
     unsigned ldmPort_{388};
     unsigned maxClients_{256};
     bool becomeDaemon_{false}; // Flipped behavior: foreground by default
-    bool checkOnly_{false};
     bool disableNagles_{false};
     unsigned int maxHereis_{16384};
     std::unique_ptr<IServer> server_;

@@ -105,6 +105,26 @@ echo "📦 Building uninstalled testing queue..."
 $BIN_DIR/$BIN_PQCREATE -c -s 15M -S 2000 -q "$QUEUE_PATH"
 
 # ==============================================================================
+# 4.5 Offline Syntax Validation
+# ==============================================================================
+echo "⚡ Phase 0: Offline Syntax Validation (-n) against rdmpqact.conf..."
+
+# Ensure the test file exists in the current directory before parsing
+if [ ! -f "./rdmpqact.conf" ]; then
+    echo "❌ FAILURE: rdmpqact.conf not found in the test directory."
+    exit 1
+fi
+
+# Run the syntax checker and capture the exit code
+if "$BIN_DIR/$BIN_PQACT" -n ./rdmpqact.conf > "$LOG_DIR/syntax_check.log" 2>&1; then
+    echo "✅ SUCCESS: Offline syntax validation passed."
+else
+    echo "❌ FAILURE: Offline syntax validation rejected rdmpqact.conf."
+    cat "$LOG_DIR/syntax_check.log"
+    exit 1
+fi
+
+# ==============================================================================
 # 5. Launch Standalone pqact Core Instance
 # ==============================================================================
 echo "🎯 Spawning detached standalone pqact monitoring engine..."
@@ -253,11 +273,13 @@ fi
 if [ "$PASSED" = true ]; then
     echo "======================================================="
     echo " 🎉 ALL ADVANCED $BIN_PQACT MODERNIZATION TESTS PASSED! 🎉"
+    echo "Log: cat $LOG_DIR/pqact.log"
     echo "======================================================="
     exit 0
 else
     echo "======================================================="
     echo " 🚨 CRITICAL ARCHITECTURAL TEST REGRESSIONS FOUND 🚨"
+    echo "Log: cat $LOG_DIR/pqact.log"
     echo "======================================================="
     exit 1
 fi

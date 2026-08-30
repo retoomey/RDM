@@ -771,22 +771,26 @@ uint64_t ProductQueue::getDataVersion() {
 int ProductQueue::waitForData(uint64_t lastSeenVersion, unsigned int timeoutSecs) {
     if (!file_.isOpen() || !indexManager_.GetControl()) return EINVAL;
     pqctl* ctl = indexManager_.GetControl();
-
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    ts.tv_sec += timeoutSecs;
-
+    
     int lockStatus = pthread_mutex_lock(&ctl->data_mutex);
     if (lockStatus == EOWNERDEAD) {
         pthread_mutex_consistent(&ctl->data_mutex);
     }
-
+    
     int status = 0;
     // Predicate check: Only sleep if no new data was committed since lastSeenVersion
     if (ctl->data_version == lastSeenVersion) {
-        status = pthread_cond_timedwait(&ctl->data_cond, &ctl->data_mutex, &ts);
+        if (timeoutSecs == 0) {
+            // Infinite wait: purely event-driven
+            status = pthread_cond_wait(&ctl->data_cond, &ctl->data_mutex);
+        } else {
+            // Failsafe timeout wait
+            struct timespec ts;
+            clock_gettime(CLOCK_MONOTONIC, &ts);
+            ts.tv_sec += timeoutSecs;
+            status = pthread_cond_timedwait(&ctl->data_cond, &ctl->data_mutex, &ts);
+        }
     }
-
     pthread_mutex_unlock(&ctl->data_mutex);
     return status;
 }

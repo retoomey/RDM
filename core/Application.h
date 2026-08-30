@@ -38,7 +38,7 @@ protected:
   {
     RegisterFlag('v', "Verbose: log INFO-level messages");
     RegisterFlag('x', "Debug: log DEBUG-level messages");
-    RegisterOption('l', "log", "Log destination (default: system logging daemon)", "");
+    RegisterOption('l', "log", "Log destination ('-' for stderr, 'syslog', or file path. Default: '-')", "-");
   }
 
   void
@@ -115,14 +115,18 @@ protected:
     ::optind = 1;
 
     while ((ch = getopt(argc, argv, optString_.c_str())) != EOF) {
-      if (ch == '?') { return false; }
-
+      if (ch == '?') { return false; } // Standard POSIX rejection
+    
       auto it = options_.find(ch);
       if (it != options_.end()) {
         it->second.isSet = true;
         if (it->second.requiresArg && ::optarg) {
           it->second.value = ::optarg;
         }
+      } else {
+        // STRICT TRAP: Catch non-standard getopt returns for unknown flags
+        fmt::print(stderr, "Unrecognized option: -{}\n", static_cast<char>(ch));
+        return false;
       }
     }
 
@@ -145,35 +149,6 @@ protected:
 public:
   virtual
   ~Application() = default;
-
-#if 0
-  int
-  Execute(int argc, char * argv[])
-  {
-    DropPrivileges();
-
-    char * argv0_copy = strdup(argv[0]);
-
-    progname_ = basename(argv0_copy);
-    free(argv0_copy);
-
-    if (LogInitialize(progname_.c_str())) { return EXIT_FAILURE; }
-    if (!ParseArguments(argc, argv)) {
-      PrintUsage();
-      return EXIT_FAILURE;
-    }
-
-    SignalManager::Initialize();
-
-    if (!Initialize()) { return EXIT_FAILURE; }
-
-    int status = Run();
-
-    // Spams: LogNotice("Exiting");
-    LogShutdown();
-    return status;
-  }
-#endif
 
   int
   Execute(int argc, char * argv[])

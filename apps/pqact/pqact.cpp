@@ -141,6 +141,7 @@ protected:
         RegisterOption('i', "interval", "Loop, polling every \"interval\" seconds", "15");
         RegisterOption('t', "timeo", "Set write timeout for PIPE subprocs to \"timeo\" secs", "60");
         RegisterOption('o', "offset", "Start with products arriving \"offset\" seconds before now", "");
+        RegisterFlag('n', "Check configuration file syntax only and exit");
     }
 
     bool ProcessOptions() override {
@@ -175,6 +176,21 @@ protected:
 
         activeDataDir_ = registry::getPqactDataDirPath();
         activeConfigPath_ = registry::getPqactConfigPath();
+
+        // Intercept the syntax check before QueueApp::Initialize() runs
+        if (IsSet('n')) {
+            ProcessManager procMgr;
+            pqact::PqactContext ctx(nullptr, 1024, procMgr); // Queue pointer is safely null
+            
+            if (!pqact::PqactParser::Parse(activeConfigPath_, ctx, ctx.config)) {
+                exit(EXIT_FAILURE);
+            } else if (ctx.config.entries.empty()) {
+                LogNotice("Configuration-file \"{}\" has no entries.", activeConfigPath_);
+            }
+            
+            LogNotice("Syntax check successful. Exiting.");
+            exit(EXIT_SUCCESS);
+        }
 
         if (!activeConfigPath_.empty() && activeConfigPath_[0] != '/') {
             char buf[PATH_MAX];
@@ -226,7 +242,7 @@ protected:
         } else if (ctx.config.entries.empty()) {
             LogNotice("Configuration-file \"{}\" has no entries. You should probably not start this program instead.", activeConfigPath_);
         }
-        
+
         auto cursor = pq_->CreateCursor();
         if (toffset_ >= 0) {
             clss_.from_sec -= toffset_;
