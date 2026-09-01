@@ -1,5 +1,6 @@
 #include "SunRpcSerializer.h"
 #include "SunRpcXdr.h"
+#include "Log.h"
 #include <rpc/xdr.h>
 #include <cstring>
 #include <cstdlib>
@@ -44,6 +45,7 @@ bool SunRpcSerializer::EncodeProduct(void* buffer, size_t buffer_size, const Pro
     xdrmem_create(&xdrs, static_cast<char*>(buffer), buffer_size, XDR_ENCODE);
 
     if (!xdr_net_prod_info(&xdrs, const_cast<ProdInfo*>(&prod.info))) {
+        LogError("SunRpcSerializer: XDR encoding failed for product '%s'", prod.info.ident.c_str());
         xdr_destroy(&xdrs);
         return false;
     }
@@ -59,6 +61,7 @@ void* SunRpcSerializer::EncodeProdInfo(void* buffer, size_t buffer_size, const P
     xdrmem_create(&xdrs, static_cast<char*>(buffer), buffer_size, XDR_ENCODE);
 
     if (!xdr_net_prod_info(&xdrs, const_cast<ProdInfo*>(&info))) {
+        LogError("SunRpcSerializer: XDR info encoding failed for product '%s'", info.ident.c_str());
         xdr_destroy(&xdrs);
         return nullptr;
     }
@@ -76,6 +79,8 @@ bool SunRpcSerializer::DecodeProdInfo(const void* buffer, size_t buffer_size, Pr
     
     if (success && next_ptr) {
         *next_ptr = static_cast<char*>(const_cast<void*>(buffer)) + xdr_getpos(&xdrs);
+    }else if (!success){
+      LogError("SunRpcSerializer: XDR info decoding failed (buffer size: %zu)", buffer_size);
     }
     
     xdr_destroy(&xdrs);
@@ -84,7 +89,10 @@ bool SunRpcSerializer::DecodeProdInfo(const void* buffer, size_t buffer_size, Pr
 
 bool SunRpcSerializer::UpdateSignature(void* buffer, size_t buffer_size, const Signature& new_sig) const {
     // Modernized: use new_sig.size() instead of sizeof(signaturet)
-    if (!buffer || buffer_size < (8 + new_sig.size())) return false;
+    if (!buffer || buffer_size < (8 + new_sig.size())){
+      LogError("SunRpcSerializer: UpdateSignature failed. Buffer too small (%zu) or null", buffer_size);
+      return false;
+    }
     char* xp = static_cast<char*>(buffer);
     xp += 8;
     
