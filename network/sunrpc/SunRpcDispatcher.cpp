@@ -64,7 +64,7 @@ RpcDispatchResult DispatchDataPlaneRpc(struct svc_req* rqstp, SVCXPRT* transp,
             mprod.payload.capacity = tl_hereis_scratchpad.size();
 
             if (!svc_getargs(transp, reinterpret_cast<xdrproc_t>(xdr_net_mutable_product), reinterpret_cast<char*>(&mprod))) {
-                LogError("RPC decode error during HEREIS from %s", peer.hostname.c_str());
+                LogError("RPC decode error during HEREIS from {}", peer.hostname.c_str());
                 svcerr_decode(transp);
                 return RpcDispatchResult::Handled; 
             }
@@ -82,7 +82,7 @@ RpcDispatchResult DispatchDataPlaneRpc(struct svc_req* rqstp, SVCXPRT* transp,
             if (error && error != static_cast<int>(PqStatus::Dup) &&
                 error != static_cast<int>(PqStatus::Big) &&
                 error != static_cast<int>(PqStatus::NotFound)) {
-                LogError("HEREIS fatal error %d (sys/queue allocation) for product '%s'", 
+                LogError("HEREIS fatal error {} (sys/queue allocation) for product '{}'", 
                   error, prod.info.ident.c_str());
                 svcerr_systemerr(transp);
                 return RpcDispatchResult::FatalError;
@@ -94,7 +94,7 @@ RpcDispatchResult DispatchDataPlaneRpc(struct svc_req* rqstp, SVCXPRT* transp,
         case COMINGSOON: {
             RpcArgGuard<ComingSoonArgsNet> guard(transp, reinterpret_cast<xdrproc_t>(xdr_net_comingsoon_args));
             if (!guard.IsValid()) {
-                LogError("RPC decode error during COMINGSOON from %s", peer.hostname.c_str());
+                LogError("RPC decode error during COMINGSOON from {}", peer.hostname.c_str());
                 svcerr_decode(transp);
                 return RpcDispatchResult::Handled;
             }
@@ -110,14 +110,14 @@ RpcDispatchResult DispatchDataPlaneRpc(struct svc_req* rqstp, SVCXPRT* transp,
                        error == static_cast<int>(PqStatus::NotFound)) {
                 replyCode = 3; // Legacy standard code for DONT_SEND
             } else {
-                LogError("COMINGSOON fatal error %d (e.g., ENOMEM/ENOSPC) for product '%s' (%u bytes)", 
+                LogError("COMINGSOON fatal error {} (e.g., ENOMEM/ENOSPC) for product '{}' ({} bytes)", 
                          error, args.info.ident.c_str(), args.pktsz);
                 svcerr_systemerr(transp);
                 return RpcDispatchResult::FatalError;
             }
 
             if (!svc_sendreply(transp, reinterpret_cast<xdrproc_t>(xdr_int), reinterpret_cast<char*>(&replyCode))) {
-                LogError("COMINGSOON failed to send RPC reply for product '%s'", args.info.ident.c_str());
+                LogError("COMINGSOON failed to send RPC reply for product '{}'", args.info.ident.c_str());
                 svcerr_systemerr(transp);
             }
             
@@ -127,7 +127,7 @@ RpcDispatchResult DispatchDataPlaneRpc(struct svc_req* rqstp, SVCXPRT* transp,
         case BLKDATA: {
             RpcArgGuard<DataPktNet> guard(transp, reinterpret_cast<xdrproc_t>(xdr_net_datapkt));
             if (!guard.IsValid()) {
-                LogError("RPC decode error during BLKDATA from %s", peer.hostname.c_str());
+                LogError("RPC decode error during BLKDATA from {}", peer.hostname.c_str());
                 svcerr_decode(transp);
                 return RpcDispatchResult::Handled;
             }
@@ -143,7 +143,7 @@ RpcDispatchResult DispatchDataPlaneRpc(struct svc_req* rqstp, SVCXPRT* transp,
             if (error && error != static_cast<int>(PqStatus::Dup) &&
                 error != static_cast<int>(PqStatus::Big) &&
                 error != static_cast<int>(PqStatus::NotFound)) {
-                LogError("BLKDATA fatal error %d for packet %u", error, dpkp.pktnum);
+                LogError("BLKDATA fatal error {} for packet {}", error, dpkp.pktnum);
                 svcerr_systemerr(transp);
                 return RpcDispatchResult::FatalError;
             }
@@ -154,7 +154,7 @@ RpcDispatchResult DispatchDataPlaneRpc(struct svc_req* rqstp, SVCXPRT* transp,
         case NOTIFICATION: {
             RpcArgGuard<ProdInfo> guard(transp, reinterpret_cast<xdrproc_t>(xdr_net_prod_info));
             if (!guard.IsValid()) {
-                LogError("RPC decode error during NOTIFICATION from %s", peer.hostname.c_str());
+                LogError("RPC decode error during NOTIFICATION from {}", peer.hostname.c_str());
                 svcerr_decode(transp);
                 return RpcDispatchResult::Handled;
             }

@@ -62,6 +62,13 @@ AppendUpstreamHostToOrigin(const std::string& originalOrigin, const char * hostI
   if (hostId) {
     newOrigin += hostId;
   }
+
+  // Enforce XDR structural limit to prevent queue insertion crashes
+  // This matches legacy LDMs behavior and XDR limits
+  if (newOrigin.length() > 63) {
+    newOrigin.resize(63);
+  }
+
   return newOrigin;
 }
 
