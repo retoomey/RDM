@@ -25,8 +25,6 @@ public:
 class FileRegionMapper : public RegionMapper {
 public:
     int fetch(rdm::RegionManager* mgr, off_t offset, size_t extent, int rflags, void** ptrp) override {
-        // std::make_unique for an array value-initializes (zeroes out) the memory, 
-        // perfectly replicating the behavior of std::calloc while providing exception safety.
         std::unique_ptr<uint8_t[]> buffer;
         try {
             buffer = std::make_unique<uint8_t[]>(extent);
@@ -34,30 +32,32 @@ public:
             LogSyserr("FileRegionMapper: Couldn't allocate {} bytes", static_cast<unsigned long>(extent));
             return ENOMEM;
         }
-
-        ssize_t nread = pread(mgr->getFd(), buffer.get(), extent, offset);
+        ssize_t nread;
+        do {
+            nread = pread(mgr->getFd(), buffer.get(), extent, offset);
+        } while (nread == -1 && errno == EINTR);
+        
         if (nread == -1) {
             int err = errno;
             LogSyserr("FileRegionMapper: Read failure at offset {}", static_cast<long>(offset));
-            return err; // buffer is automatically destroyed
+            return err;
         } else if (nread > 0 && static_cast<size_t>(nread) != extent) {
             LogError("FileRegionMapper: Short read anomaly at offset {}", static_cast<long>(offset));
-            return EIO; // buffer is automatically destroyed
+            return EIO;
         }
-
-        // Surrender ownership to the caller (MappedRegion) so it conforms to the raw void* interface.
         *ptrp = buffer.release();
         return 0;
     }
 
     int commit(rdm::RegionManager* mgr, off_t offset, size_t extent, int rflags, void* vp) override {
-        // Immediately wrap the raw pointer back into a unique_ptr. 
-        // This guarantees destruction via delete[] when commit() exits, regardless of early returns.
         std::unique_ptr<uint8_t[]> buffer(static_cast<uint8_t*>(vp));
         int status = 0;
-
         if (rdm::fIsSet(rflags, rdm::RegionFlags::Modified)) {
-            ssize_t nwrote = pwrite(mgr->getFd(), buffer.get(), extent, offset);
+            ssize_t nwrote;
+            do {
+                nwrote = pwrite(mgr->getFd(), buffer.get(), extent, offset);
+            } while (nwrote == -1 && errno == EINTR);
+            
             if (nwrote == -1) {
                 LogSyserr("FileRegionMapper: Write failure at offset {}", static_cast<long>(offset));
                 status = errno;
@@ -66,8 +66,7 @@ public:
                 status = EIO;
             }
         }
-
-        return status; // buffer goes out of scope and is safely destroyed
+        return status;
     }
 };
 

@@ -75,21 +75,24 @@ int fgrow(int fd, off_t len, int sparse) {
     struct stat st;
     if (fstat(fd, &st) == -1) return errno;
     if (st.st_size >= len) return 0;
-
     if (ftruncate(fd, len) == -1) return errno;
-
     if (!sparse) {
-        // To prevent sparse files, we must force the OS to allocate disk blocks
-        // by writing a byte at the end of every page.
         long pgsz = pagesize();
         off_t offset = mRoundUp(st.st_size);
         if (offset == 0) offset = pgsz - 1;
-
         const char zero = 0;
         for (; offset < len; offset += pgsz) {
-            if (pwrite(fd, &zero, 1, offset) != 1) return errno;
+            ssize_t nwrote;
+            do {
+                nwrote = pwrite(fd, &zero, 1, offset);
+            } while (nwrote == -1 && errno == EINTR);
+            if (nwrote != 1) return errno;
         }
-        if (pwrite(fd, &zero, 1, len - 1) != 1) return errno;
+        ssize_t nwrote_end;
+        do {
+            nwrote_end = pwrite(fd, &zero, 1, len - 1);
+        } while (nwrote_end == -1 && errno == EINTR);
+        if (nwrote_end != 1) return errno;
     }
     return 0;
 }
@@ -113,8 +116,13 @@ int fd_lock(int fd, int cmd, short l_type, off_t offset, short l_whence, size_t 
     lock.l_whence = l_whence;
     lock.l_start = offset;
     lock.l_len = static_cast<off_t>(extent);
-
-    if (fcntl(fd, cmd, &lock) == -1) {
+    
+    int status;
+    do {
+        status = fcntl(fd, cmd, &lock);
+    } while (status == -1 && errno == EINTR);
+    
+    if (status == -1) {
         return errno;
     }
     return 0;

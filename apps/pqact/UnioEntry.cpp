@@ -69,16 +69,20 @@ void UnioEntry::Close() {
 
 int UnioEntry::Sync(bool block) {
     if (fd_ != -1 && IsFlagSet(FL_NEEDS_SYNC)) {
-        if (fsync(fd_) == 0) {
+        int res;
+        do {
+            res = fsync(fd_);
+        } while (res == -1 && errno == EINTR);
+
+        if (res == 0) {
             UnsetFlag(FL_NEEDS_SYNC);
             return 0;
         }
+        
         if (!block && errno == EAGAIN) return 0;
-
-        if (errno != EINTR) {
-            LogSyserr("Couldn't flush I/O to file \"{}\"", path_);
-            UnsetFlag(FL_NEEDS_SYNC);
-        }
+        
+        LogSyserr("Couldn't flush I/O to file \"{}\"", path_);
+        UnsetFlag(FL_NEEDS_SYNC);
         return errno;
     }
     return 0;
