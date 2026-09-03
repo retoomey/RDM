@@ -30,7 +30,7 @@ echo "=== 🚀 Initializing Advanced Network active Pipeline Test Harness ==="
 mkdir -p "$UP_DIR"/{etc,var/queues,var/logs,var/run}
 mkdir -p "$DOWN_DIR"/{etc,var/queues,var/logs,var/run}
 
-echo "ALLOW ANY ^127\.0\.0\.1$|^localhost$ .*" > "$UP_DIR/etc/ldmd.conf"
+echo "ALLOW ANY .* .*" > "$UP_DIR/etc/ldmd.conf"
 echo "REQUEST EXP \".*\" 127.0.0.1:6000" > "$DOWN_DIR/etc/ldmd.conf"
 
 echo "=== Creating Expanded Product Queues ($Q_SIZE) ==="
