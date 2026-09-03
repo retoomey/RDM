@@ -34,6 +34,7 @@ private:
     bool showProdOrigin_{false};
     bool queueSanityCheck_{false};
     bool dumpData_{false};
+    bool extended_{false};
     ProdClass clss_;
     size_t nprods_{0};
     
@@ -43,14 +44,14 @@ private:
     /** Write the metadata only */
     static int WriteMetadata(const ProdInfo& info, const void* datap, void* xprod, size_t size, void* arg) {
         auto* app = static_cast<PqCatApp*>(arg);
+        // Match legacy behavior: only show MD5 if debug (-x) or extended (-e) is requested
+        bool showSig = app->extended_ || log_is_enabled_debug;
         
-        // Pass 'true' to include the MD5 signature in stdout metadata dumps
         if (app->showProdOrigin_) {
-            fmt::print(stdout, "{} {}\n", info.ToString(true), info.origin);
+            fmt::print(stdout, "{} {}\n", info.ToString(showSig), info.origin);
         } else {
-            fmt::print(stdout, "{}\n", info.ToString(true));
+            fmt::print(stdout, "{}\n", info.ToString(showSig));
         }
-
         app->nprods_++;
         return 0;
     }
@@ -111,6 +112,7 @@ protected:
         md5_check_ = IsSet('c');
         showProdOrigin_ = IsSet('O');
         queueSanityCheck_ = IsSet('s');
+        extended_ = IsSet('e');
         Timestamp now = Timestamp::Now();
         clss_.from_sec = Timestamp::ZERO.tv_sec;
         clss_.from_usec = Timestamp::ZERO.tv_usec;
@@ -130,11 +132,6 @@ protected:
             }
         }
         clss_.specs.push_back({spec.feedtype, GetOption('p')});
-
-        if (!positionalArgs_.empty()) {
-          LogError("Unexpected positional arguments provided. lpqcat does not accept standalone parameters.");
-          return false;
-        }
 
         return true;
     }

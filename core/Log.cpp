@@ -91,7 +91,9 @@ int log_set_destination(const char* dest) {
         
         ::spdlog::set_default_logger(logger);
         ::spdlog::flush_on(::spdlog::level::info);
-        ::spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%P] [%^%l%$] [" + g_progname + "] %v");
+        //::spdlog::set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%P] [%^%l%$] [" + g_progname + "] %v");
+        // Matches legacy LDM ulog format: YYYYMMDDTHHMMSS.uuuuuuZ progname[PID] level message
+        ::spdlog::set_pattern("%Y%m%dT%H%M%S.%fZ " + g_progname + "[%P] %^%l%$ %v");
         // Reapply the standalone log level
         log_set_level(g_current_log_level);
         return 0;

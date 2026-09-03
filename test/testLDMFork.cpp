@@ -79,6 +79,40 @@ static void test_ldmfork(void) {
     }
 }
 
+static void test_preserve_fd_on_exec(void) {
+    int pfd[2];
+    CU_ASSERT_EQUAL_FATAL(pipe(pfd), 0);
+    
+    // Explicitly set close-on-exec to simulate default socket behavior
+    os::ensureCloseOnExec(pfd[1]); 
+
+    char fd_str[16];
+    snprintf(fd_str, sizeof(fd_str), "%d", pfd[1]);
+
+    // Use bash to write to the specific file descriptor
+    const char* argv[] = {"bash", "-c", "echo success >&$0", fd_str, nullptr};
+    os::ExecParams params;
+    params.argv = const_cast<char**>(argv);
+    params.preserveFd = pfd[1]; 
+
+    pid_t pid = os::ForkAndExec(params);
+    CU_ASSERT_NOT_EQUAL_FATAL(pid, -1);
+
+    // Parent closes its copy of the write end
+    close(pfd[1]); 
+
+    char buf[32] = {0};
+    read(pfd[0], buf, sizeof(buf) - 1);
+    close(pfd[0]);
+
+    int wstatus;
+    waitpid(pid, &wstatus, 0);
+
+    CU_ASSERT_TRUE(WIFEXITED(wstatus));
+    CU_ASSERT_EQUAL(WEXITSTATUS(wstatus), 0);
+    CU_ASSERT_STRING_EQUAL(buf, "success\n");
+}
+
 int main(const int argc, const char* const * argv) {
     int exitCode = 1;
     if (LogInitialize(argv[0])) {
@@ -88,9 +122,19 @@ int main(const int argc, const char* const * argv) {
         if (CUE_SUCCESS == CU_initialize_registry()) {
             CU_Suite* testSuite = CU_add_suite("LDM Fork Test Suite", setup, teardown);
             if (NULL != testSuite) {
+#if 0
                 if (CU_ADD_TEST(testSuite, test_open_on_dev_null_if_closed) &&
                     CU_ADD_TEST(testSuite, test_ensure_close_on_exec) &&
                     CU_ADD_TEST(testSuite, test_ldmfork)) {
+                    CU_basic_set_mode(CU_BRM_VERBOSE);
+                    (void) CU_basic_run_tests();
+                }
+#endif
+
+                if (CU_ADD_TEST(testSuite, test_open_on_dev_null_if_closed) &&
+                    CU_ADD_TEST(testSuite, test_ensure_close_on_exec) &&
+                    CU_ADD_TEST(testSuite, test_ldmfork) &&
+                    CU_ADD_TEST(testSuite, test_preserve_fd_on_exec)) {
                     CU_basic_set_mode(CU_BRM_VERBOSE);
                     (void) CU_basic_run_tests();
                 }

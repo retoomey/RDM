@@ -38,12 +38,6 @@ protected:
         // In pqmon, the debug flag (-x) also triggers the free-extents dump
         list_extents_ = IsSet('x'); 
 
-        // Catch phantom flags
-        if (!positionalArgs_.empty()) {
-          LogError("Unexpected positional arguments provided. lpqmon does not accept standalone parameters.");
-          return false;
-        }
-
         return true;
     }
 

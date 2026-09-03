@@ -412,9 +412,17 @@ int RdmEngine::Run() {
             ExecRule serverRule;
             std::string cmd = broker;
             
+            // Pass the bind interface if one was specified
+            if (!ldmBindAddr_.empty()) {
+                cmd += " -I " + ldmBindAddr_;
+            }
+
             cmd += " -P " + std::to_string(ldmPort_);
-            if (disableNagles_) cmd += " -N";
             
+            // Explicitly pass the Max Clients limit
+            cmd += " -M " + std::to_string(maxClients_);
+
+            if (disableNagles_) cmd += " -N";
             if (log_is_enabled_debug) cmd += " -x";
             else if (log_is_enabled_info) cmd += " -v";
             

@@ -15,6 +15,10 @@ public:
 
     int Start(const std::string& ip_addr, unsigned int port, unsigned int max_clients,
        std::shared_ptr<IServiceHandler> handler, ProcessManager& procMgr) override;
+
+    int StartWithSocket(int socketFd, std::shared_ptr<IServiceHandler> handler, 
+       ProcessManager& procMgr) override;
+
     void Stop() override;
 
     static std::shared_ptr<IServiceHandler> GetCurrentHandler();

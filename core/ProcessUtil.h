@@ -14,6 +14,7 @@ struct ExecParams {
   int            stdoutFd     = -1;    // If >= 0, dups this fd to STDOUT_FILENO
   int            stderrFd     = -1;    // If >= 0, dups this fd to STDERR_FILENO
   bool           resetSignals = true;  // If true, resets common signals to SIG_DFL or SIG_IGN
+  int            preserveFd   = -1;
 };
 
 /**

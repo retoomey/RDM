@@ -23,6 +23,7 @@ private:
     Uldb uldb_;
     ProcessManager processManager_;
     std::unique_ptr<IServer> server_;
+    int socketFd_{-1};
 
 protected:
     void ConfigureOptions() override {
@@ -34,6 +35,7 @@ protected:
         // ADDED: Accept queue path and Nagle's algorithm flags from ldmd
         RegisterOption('q', "queue", "Product-queue pathname", "");
         RegisterFlag('N', "Disable Nagle's Algorithm");
+        RegisterOption('S', "socket-fd", "Inherited socket FD", "-1");
     }
 
     bool ProcessOptions() override {
@@ -45,9 +47,14 @@ protected:
         
         // ADDED: Register the queue path with the system registry so ULDB can find it
         if (IsSet('q')) registry::setQueuePath(GetOption('q'));
+
+        if (IsSet('S')) socketFd_ = std::stoi(GetOption('S'));
         
         if (!positionalArgs_.empty()) {
             configPath_ = positionalArgs_[0];
+            // Ensure the registry singleton knows the override
+            // so SunRpcServer passes the correct path to the spawned worker.
+            registry::setLdmdConfigPath(configPath_);
         } else {
             configPath_ = registry::getLdmdConfigPath();
         }
@@ -79,10 +86,30 @@ protected:
 
         int exitStatus = EXIT_SUCCESS;
 
+#if 0
         // Start() blocks and runs the RPC loop until SignalManager triggers shutdown
         if (server_->Start(ldmBindAddr_, ldmPort_, maxClients_, handler, processManager_) != 0) {
             LogError("Server failed to start (e.g., port already in use). Executing cleanup.");
             exitStatus = EXIT_FAILURE;
+        }
+#endif
+        // --- UPDATED LOGIC ---
+        if (socketFd_ >= 0) {
+            LogDebug("pqbroker starting as worker from inherited socket FD {}", socketFd_);
+            
+            // Start() using the new inherited socket method
+            if (server_->StartWithSocket(socketFd_, handler, processManager_) != 0) {
+                LogError("Server failed to start on inherited socket");
+                exitStatus = EXIT_FAILURE;
+            }
+        } else {
+            LogDebug("pqbroker binding as listener to port {}", ldmPort_);
+            
+            // Start() blocks and runs the RPC loop until SignalManager triggers shutdown
+            if (server_->Start(ldmBindAddr_, ldmPort_, maxClients_, handler, processManager_) != 0) {
+                LogError("Server failed to start (e.g., port already in use). Executing cleanup.");
+                exitStatus = EXIT_FAILURE;
+            }
         }
 
         // ==========================================================

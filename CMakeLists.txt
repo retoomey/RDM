@@ -272,3 +272,9 @@ install(DIRECTORY core/ network/ storage/
     FILES_MATCHING PATTERN "*.h"
 )
 
+# Install the admin wrapper without the .sh extension to match legacy behavior
+install(PROGRAMS ldmadmin.sh
+    DESTINATION ${CMAKE_INSTALL_BINDIR}
+    RENAME rdmadmin
+)
+

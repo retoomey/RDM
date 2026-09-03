@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# ALPHA (I haven't used this yet so it probably needs work/debugging).
-#        FIXME: 1.  Make sure it works
-#               2.  Install with cmake say as ldmadmin or rdmadmin, etc.
-# First pass at an ldmadmin script replacement.
+# Toomey Sept 2026
+#
+# rdmadmin/ldmadmin script replacement.
+# Tested with "tests/testldmadmin.sh", if you change it consider updating
+# or improving the test
 # 
 # Perl is getting long in the tooth and is not allowed on some of our deployment
 # To be honest for things like this wrapping binaries, basic shell works.
@@ -13,22 +14,27 @@
 set -euo pipefail
 
 # --- Installation Directory Bounds ---
+
+# Resolve the directory where this script actually lives
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Respect the user's home directory if LDMHOME isn't explicitly set
 # Since we now can run non-privileged
 export LDMHOME="${LDMHOME:-$HOME/ldm}"
-export LDM_BIN_DIR="${LDM_BIN_DIR:-$LDMHOME/bin}"
 
-# --- Binary Collection Configuration ---
-export LDM_BIN_DIR="${LDM_BIN_DIR:-$LDMHOME/bin}"
+# Default to the script's own directory for binaries, allowing overrides
+export LDM_BIN_DIR="${LDM_BIN_DIR:-$SCRIPT_DIR}"
 
 # --- Cleaned LDM Binary Execution Constants ---
-readonly CMD_REGUTIL="$LDM_BIN_DIR/regutil"
-readonly CMD_LDMD="$LDM_BIN_DIR/ldmd"
-readonly CMD_PQCREATE="$LDM_BIN_DIR/pqcreate"
-readonly CMD_PQMON="$LDM_BIN_DIR/pqmon"
-readonly CMD_PQUTIL="$LDM_BIN_DIR/pqutil"
-readonly CMD_ULDBUTIL="$LDM_BIN_DIR/uldbutil"
-readonly CMD_LDMPING="$LDM_BIN_DIR/ldmping"
+readonly OURNAME="rdmadmin"
+readonly RDMD="rdmd"
+readonly CMD_REGUTIL="$LDM_BIN_DIR/rregutil"
+readonly CMD_LDMD="$LDM_BIN_DIR/$RDMD"
+readonly CMD_PQCREATE="$LDM_BIN_DIR/lpqcreate"
+readonly CMD_PQMON="$LDM_BIN_DIR/lpqmon"
+readonly CMD_PQUTIL="$LDM_BIN_DIR/lpqutil"
+readonly CMD_ULDBUTIL="$LDM_BIN_DIR/ruldbutil"
+readonly CMD_LDMPING="$LDM_BIN_DIR/rdmping"
 
 # Expose custom bin directory to PATH for any internal utility cross-calls
 export PATH="$LDM_BIN_DIR:$PATH"
@@ -97,7 +103,7 @@ errmsg() {
 get_lock() {
     exec 9>>"$LOCK_FILE"
     if ! flock -n 9; then
-        errmsg "getLock(): Couldn't lock file '$LOCK_FILE'. Another ldmadmin running."
+        errmsg "getLock(): Couldn't lock file '$LOCK_FILE'. Another $OURNAME running."
         exit 1
     fi
 }
@@ -128,7 +134,11 @@ is_running() {
         fi
     fi
     if [ -x "$CMD_LDMPING" ]; then
-        if "$CMD_LDMPING" -l- -i 0 -t 1 "$IP_ADDR" >/dev/null 2>&1; then
+        local target="$IP_ADDR"
+        [ "$target" = "0.0.0.0" ] && target="localhost"
+        
+        # ADDED: -P "$PORT" to ping the correct override port
+        if "$CMD_LDMPING" -q -i 0 -t 1 -P "$PORT" "$target" >/dev/null 2>&1; then
             return 0
         fi
     fi
@@ -141,12 +151,12 @@ is_running() {
 
 start_ldm() {
     if is_running; then
-        errmsg "start_ldm(): There is another LDM server running. Aborted."
+        errmsg "start(): There is another $RDMD server running. Aborted."
         return 1
     fi
 
     if [ ! -f "$QUEUE_PATH" ]; then
-        errmsg "start_ldm(): Product queue missing. Run 'ldmadmin mkqueue' first."
+        errmsg "start(): Product queue missing. Run '$OURNAME mkqueue' first."
         return 1
     fi
 
@@ -154,10 +164,10 @@ start_ldm() {
         "$CMD_ULDBUTIL" -d 2>/dev/null || true
     fi
 
-    echo "Checking LDM configuration-file ($LDMD_CONFIG_PATH)..."
+    echo "Checking $RDMD configuration-file ($LDMD_CONFIG_PATH)..."
     if ! "$CMD_LDMD" -I "$IP_ADDR" -P "$PORT" -M "$MAX_CLIENTS" -m "$MAX_LATENCY" \
                      -o "$TIME_OFFSET" -q "$QUEUE_PATH" -nvl- "$LDMD_CONFIG_PATH" >/dev/null 2>&1; then
-        errmsg "start(): Problem identified within LDM configuration file rules."
+        errmsg "start(): Problem identified within $RDMD configuration file rules."
         return 1
     fi
 
@@ -168,13 +178,18 @@ start_ldm() {
         "$CMD_PQUTIL" -C 2>/dev/null || true
     fi
 
-    echo "Starting the LDM server..."
+    echo "Starting the $RDMD server..."
+    # ADDED: explicit -l log routing, and removed stdout redirection to the PID file
     "$CMD_LDMD" -I "$IP_ADDR" -P "$PORT" -M "$MAX_CLIENTS" -m "$MAX_LATENCY" \
-                -o "$TIME_OFFSET" -q "$QUEUE_PATH" "$LDMD_CONFIG_PATH" > "$PID_FILE" 2>&1 &
+                -o "$TIME_OFFSET" -q "$QUEUE_PATH" \
+                -l "$LDMHOME/var/logs/ldmd.log" "$LDMD_CONFIG_PATH" > /dev/null 2>&1 &
+                
+    # ADDED: explicitly save the bash background process ID
+    echo $! > "$PID_FILE"
          
     sleep 2
     if ! is_running; then
-        errmsg "start(): Could not start LDM server daemon process."
+        errmsg "start(): Could not start $RDMD server daemon process."
         rm -f "$PID_FILE"
         return 1
     fi
@@ -185,11 +200,11 @@ stop_ldm() {
     local pid
     pid=$(get_pid)
     if [ "$pid" == "-1" ]; then
-        errmsg "The LDM server isn't running or its process-ID is unavailable."
+        errmsg "The $RDMD server isn't running or its process-ID is unavailable."
         return 1
     fi
 
-    echo "Stopping the LDM server..."
+    echo "Stopping the $RDMD server..."
     kill -15 "$pid"
 
     for i in {1..10}; do
@@ -250,12 +265,14 @@ shift || true
 
 case "$CMD" in
     start)
-        while getopts "q:M:m:o:" opt; do
+        while getopts "q:M:m:o:P:I:" opt; do
             case "$opt" in
                 q) QUEUE_PATH="$OPTARG" ;;
                 M) MAX_CLIENTS="$OPTARG" ;;
                 m) MAX_LATENCY="$OPTARG" ;;
                 o) TIME_OFFSET="$OPTARG" ;;
+                P) PORT="$OPTARG" ;;
+                I) IP_ADDR="$OPTARG" ;;
                 *) ;;
             esac
         done
@@ -280,7 +297,7 @@ case "$CMD" in
         ;;
     delqueue)
         get_lock
-        if ! is_running; then rm -f "$QUEUE_PATH"; else errmsg "LDM active, cannot delete."; fi
+        if ! is_running; then rm -f "$QUEUE_PATH"; else errmsg "$RDMD active, cannot delete."; fi
         release_lock
         ;;
     isrunning)
@@ -294,7 +311,7 @@ case "$CMD" in
         ;;
     clean)
         if is_running; then
-            errmsg "The LDM system is running! Stop it first."
+            errmsg "The $RDMD system is running! Stop it first."
             return 1
         fi
         rm -f "$PID_FILE" "$LDMHOME/MldmRpc_*"

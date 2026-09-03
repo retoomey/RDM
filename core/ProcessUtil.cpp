@@ -121,6 +121,14 @@ pid_t ForkAndExec(const ExecParams& params) {
             close(params.stderrFd);
         }
 
+        // --- NEW LOGIC: Strip close-on-exec for the preserved FD ---
+        if (params.preserveFd >= 0) {
+            int flags = fcntl(params.preserveFd, F_GETFD);
+            if (flags != -1) {
+                fcntl(params.preserveFd, F_SETFD, flags & ~FD_CLOEXEC);
+            }
+        }
+
         // Crucial security step: permanently drop privileges before loading the new binary
         PrivilegeManager::Instance().PermanentlyDropPrivileges();
 

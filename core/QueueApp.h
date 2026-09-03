@@ -27,29 +27,18 @@ protected:
     RegisterOption('q', "pqfname", "Path to product queue file", registry::getDefaultQueuePath());
   }
 
-  bool
-  ProcessOptions() override
-  {
+  bool ProcessOptions() override {
     if (!Application::ProcessOptions()) { return false; }
-
-    // ------------------------------------------------========================
-    // 1. QUEUE PATH HIERARCHY RESOLUTION
-    // Order: -q flag -> Positional Arg -> Active Registry -> Default Registry
-    // ------------------------------------------------========================
+    
     if (IsSet('q') && !GetOption('q').empty()) {
       queuePath_ = GetOption('q');
-      registry::setQueuePath(queuePath_); // Explicit override updates registry
-    } else if (!positionalArgs_.empty()) {
-      queuePath_ = positionalArgs_[0];
-      registry::setQueuePath(queuePath_); // Positional override updates registry
+      registry::setQueuePath(queuePath_);
     } else {
-      // Pull configured path from registry (or system default if unset)
       queuePath_ = registry::getQueuePath();
       if (queuePath_.empty()) {
         queuePath_ = registry::getDefaultQueuePath();
       }
     }
-
     return true;
   }
 
