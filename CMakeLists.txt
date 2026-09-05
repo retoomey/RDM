@@ -126,6 +126,7 @@ add_library(rdmcore SHARED
     core/NetworkFactory.cpp
     core/StorageFactory.cpp
     core/ProcessManager.cpp
+    core/ProcessNotifier.cpp
     core/AclManager.cpp
     core/UpFilter.cpp
     core/ProdInfo.cpp

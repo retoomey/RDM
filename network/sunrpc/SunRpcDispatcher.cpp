@@ -158,7 +158,7 @@ RpcDispatchResult DispatchDataPlaneRpc(struct svc_req* rqstp, SVCXPRT* transp,
                 svcerr_decode(transp);
                 return RpcDispatchResult::Handled;
             }
-            
+            LogDebug("RPC Dispatcher: NOTIFICATION cleanly received for {}", guard.GetArgs().ident);
             handler->OnNotification(peer, guard.GetArgs());
             return RpcDispatchResult::Handled;
         }

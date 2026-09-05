@@ -141,11 +141,7 @@ protected:
             }
 
             if (interval_ == 0) break;
-            
-            // Unlike other apps, we're really a 'true' poller like 'top', so we should
-            // sleep and not posix wait on the queue flags
-            sleep(interval_); // Replaces WaitOnQueue(interval_) to prevent condition-variable spam
-            // WaitOnQueue(interval_);
+            SignalManager::SleepResponsive(interval_);
         }
 
         return EXIT_SUCCESS;

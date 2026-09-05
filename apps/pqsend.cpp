@@ -184,8 +184,7 @@ protected:
             client_ = NetworkFactory::CreateClient(std::move(*sa), rpcTimeout_);
             if (client_->Connect() != 0) {
                 LogError("Connection failed: {}", client_->GetLastError());
-                if (SignalManager::IsDone()) break;
-                sleep(rpcTimeout_);
+                SignalManager::SleepResponsive(rpcTimeout_);
                 continue;
             }
 
@@ -199,7 +198,7 @@ protected:
             if (resp.statusCode == ReplyStatus::DONT_SEND) {
                 LogError("Remote server refused HIYA connection: {}", client_->GetLastError());
                 client_->Disconnect();
-                sleep(rpcTimeout_);
+                SignalManager::SleepResponsive(rpcTimeout_);
                 continue;
             } else if (resp.statusCode == ReplyStatus::RECLASS) {
                 LogNotice("Server narrowed request via RECLASS.");
@@ -215,9 +214,9 @@ protected:
                 int status = cursor->sequence(Match::GreaterThan, offerClass_, send_callback, this);
 
                 if (status == 0) {
+                    lastDataVersion_ = pq_->getDataVersion();
                     continue; // Product sent successfully
                 } else if (status == static_cast<int>(PqStatus::End)) {
-                    LogDebug("End of Queue reached. Flushing.");
                     client_->Flush();
                     
                     if (IsSet('1')){

@@ -224,143 +224,140 @@ protected:
     }
 
     int Run() override {
-        long maxOpen = sysconf(_SC_OPEN_MAX);
-        if (maxOpen == -1) maxOpen = _POSIX_OPEN_MAX;
-        unsigned maxFdCount = static_cast<unsigned>(maxOpen - 6);
+    long maxOpen = sysconf(_SC_OPEN_MAX);
+    if (maxOpen == -1) maxOpen = _POSIX_OPEN_MAX;
+    unsigned maxFdCount = static_cast<unsigned>(maxOpen - 6);
+    
+    auto* concreteQueue = pq_.get();
+    if (!concreteQueue) {
+        LogError("Fatal: Underlying product store is not a ProductQueue!");
+        return EXIT_FAILURE;
+    }
+    
+    pqact::PqactContext ctx(concreteQueue, maxFdCount, processManager_);
+    ctx.pipeTimeo = pipe_timeo_;
+    
+    if (!pqact::PqactParser::Parse(activeConfigPath_, ctx, ctx.config)) {
+        return EXIT_FAILURE;
+    } else if (ctx.config.entries.empty()) {
+        LogNotice("Configuration-file \"{}\" has no entries. You should probably not start this program instead.", activeConfigPath_);
+    }
+    
+    auto cursor = pq_->CreateCursor();
+    
+    if (toffset_ >= 0) {
+        clss_.from_sec -= toffset_;
+        cursor->setCursor(Timestamp(clss_.from_sec, static_cast<int32_t>(clss_.from_usec)));
+    } else {
+        bool startAtTailEnd = true;
+        clss_.from_sec = 0;
+        clss_.from_usec = 0;
+        Timestamp readTs;
         
-        auto* concreteQueue = pq_.get();
-        if (!concreteQueue) {
-            LogError("Fatal: Underlying product store is not a ProductQueue!");
-            return EXIT_FAILURE;
-        }
-        
-        pqact::PqactContext ctx(concreteQueue, maxFdCount, processManager_);
-        ctx.pipeTimeo = pipe_timeo_;
-        
-        if (!pqact::PqactParser::Parse(activeConfigPath_, ctx, ctx.config)) {
-            return EXIT_FAILURE;
-        } else if (ctx.config.entries.empty()) {
-            LogNotice("Configuration-file \"{}\" has no entries. You should probably not start this program instead.", activeConfigPath_);
-        }
-
-        auto cursor = pq_->CreateCursor();
-        if (toffset_ >= 0) {
-            clss_.from_sec -= toffset_;
-            cursor->setCursor(Timestamp(clss_.from_sec, static_cast<int32_t>(clss_.from_usec)));
+        if (!os::StateFile::Read(activeConfigPath_, readTs)) {
+            LogWarning("Couldn't get insertion-time of last-processed data-product from previous session");
         } else {
-            bool startAtTailEnd = true;
-            clss_.from_sec = 0;
-            clss_.from_usec = 0;
-            Timestamp readTs;
-            if (!os::StateFile::Read(activeConfigPath_, readTs)) {
-                LogWarning("Couldn't get insertion-time of last-processed data-product from previous session");
+            Timestamp insertTimeTs(readTs.tv_sec, readTs.tv_usec);
+            Timestamp now_check = Timestamp::Now();
+            if (now_check < insertTimeTs) {
+                LogWarning("Time of last-processed data-product from previous session is in the future");
             } else {
-                Timestamp insertTimeTs(readTs.tv_sec, readTs.tv_usec);
-                Timestamp now_check = Timestamp::Now();
-                if (now_check < insertTimeTs) {
-                    LogWarning("Time of last-processed data-product from previous session is in the future");
-                } else {
-                    char buf[80];
-                    time_t tsec = insertTimeTs.tv_sec;
-                    (void)std::strftime(buf, sizeof(buf), "%Y-%m-%d %T", gmtime(&tsec));
-                    LogNotice("Starting from insertion-time {}.{:06} UTC", buf, static_cast<long>(insertTimeTs.tv_usec));
-                    cursor->setCursor(insertTimeTs);
-                    startAtTailEnd = false;
-                }
-            }
-            if (startAtTailEnd) {
-                LogNotice("Starting at tail-end of product-queue");
-                Timestamp dummy;
-                (void)cursor->setCursorToLast(clss_, dummy);
+                char buf[80];
+                time_t tsec = insertTimeTs.tv_sec;
+                (void)std::strftime(buf, sizeof(buf), "%Y-%m-%d %T", gmtime(&tsec));
+                LogNotice("Starting from insertion-time {}.{:06} UTC", buf, static_cast<long>(insertTimeTs.tv_usec));
+                cursor->setCursor(insertTimeTs);
+                startAtTailEnd = false;
             }
         }
-        
-        LogInfo("{}", clss_.ToString());
-        
-        if (!activeDataDir_.empty()) {
-            if (chdir(activeDataDir_.c_str()) == -1) {
-                LogSyserr("cannot chdir to {}", activeDataDir_);
-                return 4;
-            }
+        if (startAtTailEnd) {
+            LogNotice("Starting at tail-end of product-queue");
+            Timestamp dummy;
+            (void)cursor->setCursorToLast(clss_, dummy);
+        }
+    }
+    
+    LogInfo("{}", clss_.ToString());
+    
+    if (!activeDataDir_.empty()) {
+        if (chdir(activeDataDir_.c_str()) == -1) {
+            LogSyserr("cannot chdir to {}", activeDataDir_);
+            return 4;
+        }
+    }
+    
+    ProcessDummyProduct("_BEGIN_", &ctx);
+    int exitCode = EXIT_SUCCESS;
+    
+    while (!SignalManager::IsDone()) {
+        if (hupped_) {
+            LogNotice("Rereading configuration file {}", activeConfigPath_);
+            (void) pqact::PqactParser::Parse(activeConfigPath_, ctx, ctx.config);
+            hupped_ = false;
         }
         
-        ProcessDummyProduct("_BEGIN_", &ctx);
-        int exitCode = EXIT_SUCCESS;
+        int status = cursor->next(false, clss_, ProcessProduct, false, &ctx);
         
-        while (!SignalManager::IsDone()) {
-            if (hupped_) {
-                LogNotice("Rereading configuration file {}", activeConfigPath_);
-                (void) pqact::PqactParser::Parse(activeConfigPath_, ctx, ctx.config);
-                hupped_ = false;
-            }
-            
-            int status = cursor->next(false, clss_, ProcessProduct, false, &ctx);
-            
-            if (status) {
-                if (status == static_cast<int>(PqStatus::End)) {
-                    LogDebug("End of Queue");
-                    if (interval_ == 0) break;
-                    ctx.fileCache->SyncAll(false);
-                } else if (status == EAGAIN || status == EACCES || status == EINTR) {
-                    LogDebug("Hit a lock or was interrupted by a signal");
-                    ctx.fileCache->EvictLru(pqact::FL_NOTRANSIENT);
-                } else if (status == EDEADLK) {
-                    LogSyserr("Deadlock detected (EDEADLK)");
-                    ctx.fileCache->EvictLru(pqact::FL_NOTRANSIENT);
-                } else {
-                    LogError("pq_next() failure: {} (errno = {})", pq_->strerror(status), status);
-                    exitCode = EXIT_FAILURE;
-                    break;
-                }
+        if (status) {
+            if (status == static_cast<int>(PqStatus::End)) {
+                if (interval_ == 0) break;
+                ctx.fileCache->SyncAll(false);
                 
                 if (SignalManager::IsDone()) break;
                 
-                struct timeval tv;
-                tv.tv_sec = interval_;
-                tv.tv_usec = 0;
-                select(0, nullptr, nullptr, nullptr, &tv);
-            }
-            
-            if (SignalManager::IsDone()) break;
-            
-            while (processManager_.Reap(-1, WNOHANG) > 0);
-        }
-        
-        if (SignalManager::IsDone()) {
-            if (palt_last_insertion == Timestamp::NONE) {
-                LogNotice("No product was processed");
+                // ONLY wait for new data if we actually hit the end of the queue
+                WaitOnQueue(interval_);
+                
+            } else if (status == EINTR) {
+                // Interrupted by signal (e.g., SIGCHLD). Skip eviction, skip wait, loop around to reap.
+                LogDebug("Interrupted by signal");
+                
+            } else if (status == EAGAIN || status == EACCES || status == EDEADLK) {
+                // Lock contention or deadlock. Evict LRU to free resources, but do NOT sleep.
+                LogDebug("Hit a lock or deadlock. Evicting LRU and retrying.");
+                ctx.fileCache->EvictLru(pqact::FL_NOTRANSIENT);
+                
             } else {
-                Timestamp now_close = Timestamp::Now();
-                LogNotice("Last product processed was inserted {} s ago",
-                        (now_close - palt_last_insertion).AsSeconds());
-                if (!os::StateFile::Write(activeConfigPath_, palt_last_insertion)) {
-                    LogError("Couldn't save insertion-time of last processed data-product");
-                }
+                LogError("pq_next() failure: {} (errno = {})", pq_->strerror(status), status);
+                exitCode = EXIT_FAILURE;
+                break;
+            }
+        } else {
+            lastDataVersion_ = pq_->getDataVersion();
+        }
+        
+        if (SignalManager::IsDone()) break;
+        
+        // Reap any zombie children (e.g., if EINTR brought us here)
+        while (processManager_.Reap(-1, WNOHANG) > 0);
+    }
+    
+    if (SignalManager::IsDone()) {
+        if (palt_last_insertion == Timestamp::NONE) {
+            LogNotice("No product was processed");
+        } else {
+            Timestamp now_close = Timestamp::Now();
+            LogNotice("Last product processed was inserted {} s ago",
+                    (now_close - palt_last_insertion).AsSeconds());
+            if (!os::StateFile::Write(activeConfigPath_, palt_last_insertion)) {
+                LogError("Couldn't save insertion-time of last processed data-product");
             }
         }
-
-        // ==========================================================
-        // BULLETPROOF CLEANUP LOGIC
-        // ==========================================================
-        LogNotice("pqact shutting down: signaling EXEC and PIPE children...");
-        
-        // 1. Ignore SIGTERM so pqact isn't killed while cleaning up its own mess
-        SignalManager::Ignore(SIGTERM); 
-        
-        // 2. Explicitly send SIGTERM to all detached children
-        processManager_.KillAll(SIGTERM);
-
-        // 3. Block and reap until the process manager is entirely empty
-        while (processManager_.Count() > 0) {
-            processManager_.Reap(-1, 0); 
-        }
-        
-        LogNotice("pqact shutdown complete. All children reaped.");
-        // ==========================================================
-
-        ctx.fileCache->CloseAll();
-        return exitCode;
     }
+    
+    LogNotice("pqact shutting down: signaling EXEC and PIPE children...");
+    SignalManager::Ignore(SIGTERM);
+    processManager_.KillAll(SIGTERM);
+    
+    while (processManager_.Count() > 0) {
+        processManager_.Reap(-1, 0);
+    }
+    
+    LogNotice("pqact shutdown complete. All children reaped.");
+    ctx.fileCache->CloseAll();
+    
+    return exitCode;
+}
 
 public:
     PqActApp() : QueueApp(PqFlags::ReadOnly, "Dispatches local product queue files to decoders and actions.") {}

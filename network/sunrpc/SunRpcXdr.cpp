@@ -56,12 +56,21 @@ bool_t xdr_net_prod_info(XDR* xdrs, ProdInfo* info) {
 
     long tv_sec = info->arrival.tv_sec;
     long tv_usec = info->arrival.tv_usec;
+
     if (!xdr_long(xdrs, &tv_sec)) return FALSE;
     if (!xdr_long(xdrs, &tv_usec)) return FALSE;
-    
     if (!xdr_opaque(xdrs, reinterpret_cast<char*>(info->signature.data()), 16)) return FALSE;
 
-    char* origin_ptr = (xdrs->x_op == XDR_ENCODE) ? const_cast<char*>(info->origin.c_str()) : nullptr;
+    // Buffer locally to survive asynchronous TCP stream encoding
+    char origin_buf[65] = {0};
+    char ident_buf[256] = {0};
+    char* origin_ptr = nullptr;
+    char* ident_ptr = nullptr;
+
+    if (xdrs->x_op == XDR_ENCODE) {
+        std::strncpy(origin_buf, info->origin.c_str(), 64);
+        origin_ptr = origin_buf;
+    }
     if (!xdr_string(xdrs, &origin_ptr, 64)) return FALSE;
 
     u_int feedtype = info->feedtype.GetValue();
@@ -70,7 +79,10 @@ bool_t xdr_net_prod_info(XDR* xdrs, ProdInfo* info) {
     u_int seqno = info->seqno;
     if (!xdr_u_int(xdrs, &seqno)) return FALSE;
 
-    char* ident_ptr = (xdrs->x_op == XDR_ENCODE) ? const_cast<char*>(info->ident.c_str()) : nullptr;
+    if (xdrs->x_op == XDR_ENCODE) {
+        std::strncpy(ident_buf, info->ident.c_str(), 255);
+        ident_ptr = ident_buf;
+    }
     if (!xdr_string(xdrs, &ident_ptr, 255)) return FALSE;
 
     u_int sz = info->sz;
@@ -82,14 +94,11 @@ bool_t xdr_net_prod_info(XDR* xdrs, ProdInfo* info) {
         info->feedtype = FeedType(feedtype);
         info->seqno = seqno;
         info->sz = sz;
-        
         info->origin = origin_ptr ? origin_ptr : "";
         if (origin_ptr) free(origin_ptr);
-
         info->ident = ident_ptr ? ident_ptr : "";
         if (ident_ptr) free(ident_ptr);
     }
-    
     return TRUE;
 }
 
@@ -160,14 +169,6 @@ bool_t xdr_net_prod_class(XDR* xdrs, ProdClass* clss) {
 bool_t xdr_net_feedpar(XDR* xdrs, FeedParNet* fpar) {
     if (xdrs->x_op == XDR_FREE) return TRUE;
 
-#if 0
-    bool_t is_present = TRUE;
-    if (!xdr_bool(xdrs, &is_present)) return FALSE;
-
-    if (is_present) {
-        if (!xdr_net_prod_class(xdrs, &fpar->clss)) return FALSE;
-    }
-#endif
     if (!xdr_net_prod_class(xdrs, &fpar->clss)) return FALSE;
 
     if (!xdr_u_int(xdrs, &fpar->max_hereis)) return FALSE;
@@ -233,14 +234,6 @@ bool_t xdr_net_hiya_reply(XDR* xdrs, HiyaResponse* reply) {
 bool_t xdr_net_comingsoon_args(XDR* xdrs, ComingSoonArgsNet* args) {
     if (xdrs->x_op == XDR_FREE) return TRUE;
 
-#if 0
-    bool_t is_present = TRUE;
-    if (!xdr_bool(xdrs, &is_present)) return FALSE;
-
-    if (is_present) {
-        if (!xdr_net_prod_info(xdrs, &args->info)) return FALSE;
-    }
-#endif
     if (!xdr_net_prod_info(xdrs, &args->info)) return FALSE;
 
     if (!xdr_u_int(xdrs, &args->pktsz)) return FALSE;
@@ -257,14 +250,6 @@ bool_t xdr_net_datapkt(XDR* xdrs, DataPktNet* pkt) {
         return TRUE;
     }
 
-#if 0
-    bool_t is_present = TRUE;
-    if (!xdr_bool(xdrs, &is_present)) return FALSE;
-
-    if (is_present) {
-        if (!xdr_opaque(xdrs, reinterpret_cast<char*>(pkt->signaturep), 16)) return FALSE;
-    }
-#endif
     if (!xdr_opaque(xdrs, reinterpret_cast<char*>(pkt->signaturep), 16)) return FALSE;
 
     if (!xdr_u_int(xdrs, &pkt->pktnum)) return FALSE;

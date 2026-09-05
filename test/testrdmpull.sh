@@ -40,8 +40,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Give the daemon a moment to bind to the port
-sleep 1
+# Actively poll to ensure upstream server is bound and ready
+for i in {1..10}; do
+    if $BIN_DIR/$BIN_LDMPING -q -i 0 -t 1 -P $LDM_PORT localhost >/dev/null 2>&1; then
+        break
+    fi
+    sleep 0.5
+done
 
 # Create some dummy payloads
 FULL_PAYLOAD_XML="$TEST_DIR/dummy_full.xml"
@@ -68,15 +73,17 @@ FULL_ERR="$TEST_DIR/pull_full.err"
 $BIN_DIR/$BIN_RDMCAT -d -v -o 3600 -h localhost -P $LDM_PORT -p "TEST_FULL" > "$FULL_OUT" 2> "$FULL_ERR" &
 PULL_FULL_PID=$!
 
-# Give ldmd time to accept the TCP connection and fork the downstream feeder
-sleep 1
-
-# Insert the dummy XML file into the queue. Condvars will immediately wake the feeder.
 echo "Inserting FULL $BIN_RDMCAT test payload..."
-$BIN_DIR/$BIN_PQINSERT -v -q "$UP_DIR/var/queues/up.pq" -p "TEST_FULL_PRODUCT" "$FULL_PAYLOAD_XML"
+$BIN_DIR/$BIN_PQINSERT -v -q "$UP_DIR/var/queues/up.pq" -p "TEST_FULL_PRODUCT" "$FULL_PAYLOAD_XML" -l "/tmp/pqinsert.log"
 
-# Give the product time to traverse the RPC/TCP network socket
-sleep 1
+# Actively poll for the expected output instead of a static sleep
+for i in {1..15}; do
+    if grep -q "FULL_PAYLOAD_SUCCESS" "$FULL_OUT"; then
+        break
+    fi
+    echo "Poll pqinsert $i"
+    sleep 1
+done
 
 # Terminate the background rdmpull process
 kill -TERM $PULL_FULL_PID 2>/dev/null || true
@@ -103,15 +110,20 @@ META_OUT="$TEST_DIR/pull_meta.out"
 META_ERR="$TEST_DIR/pull_meta.err"
 
 # Run without -d, WITH -v, and using a wide offset
-$BIN_DIR/$BIN_RDMCAT -v -o 3600 -h localhost -P $LDM_PORT -p "TEST_META" > "$META_OUT" 2> "$META_ERR" &
+$BIN_DIR/$BIN_RDMCAT -x -o 3600 -h localhost -P $LDM_PORT -p "TEST_META" > "$META_OUT" 2> "$META_ERR" &
 PULL_META_PID=$!
-
-sleep 1
 
 echo "Inserting META test payload..."
 $BIN_DIR/$BIN_PQINSERT -v -q "$UP_DIR/var/queues/up.pq" -p "TEST_META_PRODUCT" "$META_PAYLOAD_XML"
 
-sleep 1
+# Actively poll for the expected output instead of a static sleep
+for i in {1..15}; do
+    if grep -q "META_PAYLOAD_SHOULD_BE_HIDDEN" "$META_OUT" || grep -q "TEST_META_PRODUCT" "$META_ERR"; then
+        break
+    fi
+    echo "Poll pqinsert2 $i"
+    sleep 1
+done
 
 kill -TERM $PULL_META_PID 2>/dev/null || true
 wait $PULL_META_PID 2>/dev/null || true

@@ -10,152 +10,12 @@
 #include "DownstreamClientHandler.h"
 #include "UpstreamClientHandler.h"
 #include "NetworkUtils.h"
-
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/wait.h>
 #include <climits>
 
 namespace rdm {
-
-// Retain all internal helper functions from the original ldmd.cpp here
-static std::string getLDMDInfoPrefix() {
-    static std::string infoDir;
-    if (infoDir.empty()) {
-       infoDir = registry::getString(registry::RegistryKey::StatePath);
-    }
-    return infoDir;
-}
-
-static int getQueueProdInfo(IProductStore& pq_local, const ProdClass& prodClass, ProdInfo& info) {
-    int status = -1;
-    auto cursor = pq_local.CreateCursor();
-    cursor->setCursor(Timestamp::ENDT);
-    info.arrival.tv_sec = 0;
-    while ((status = cursor->next(true, prodClass,
-        [](const prod_par_t* prod_par, const queue_par_t*, void* arg) {
-            ProdInfo* outInfo = static_cast<ProdInfo*>(arg);
-            *outInfo = prod_par->info;
-        }, false, &info)) == 0) {
-        if (SignalManager::IsDone()) break;
-        if (info.arrival.tv_sec != 0) return 0;
-        Timestamp clean_cursor;
-        cursor->getCursorTimestamp(clean_cursor);
-        if (prodClass.from_sec > 0 && (clean_cursor.tv_sec < prodClass.from_sec)) break;
-    }
-    if (status && static_cast<int>(PqStatus::End) != status) {
-        LogError("getQueueProdInfo(): failure (status = {})", status);
-    } else {
-        status = (0 == status || info.arrival.tv_sec == 0) ? 1 : 0;
-    }
-    return status;
-}
-
-static int requester_core(const char* source, const unsigned port, ProdClass clssp,
-                          int isPrimary, const unsigned feedCount,
-                          bool disableNagles, unsigned int maxHereis) {
-    int errCode = 0;
-    int maxSilence = 10 * registry::getSystemInterval();
-    unsigned int backoffTime = registry::getTimeOffset();
-    Timestamp defaultFrom = Timestamp::Now();
-    defaultFrom.tv_sec -= backoffTime;
-    if (defaultFrom.tv_sec > clssp.from_sec ||
-       (defaultFrom.tv_sec == clssp.from_sec && defaultFrom.tv_usec > clssp.from_usec)) {
-        clssp.from_sec = defaultFrom.tv_sec;
-        clssp.from_usec = defaultFrom.tv_usec;
-    }
-    auto shifter = std::make_shared<AutoShifter>(isPrimary == 1, feedCount,
-      static_cast<double>(registry::getSystemInterval()));
-    SavedInfoFile stateManager(getLDMDInfoPrefix(), source, port, clssp);
-    ProdInfo latestInfo;
-    latestInfo.arrival.tv_sec = 0;
-    bool hasLatest = stateManager.Read(latestInfo);
-    auto serializer = NetworkFactory::CreateSerializer();
-    if (!hasLatest) {
-        std::unique_ptr<IProductStore> localQueue = StorageFactory::Create(serializer);
-        if (localQueue->open(registry::getQueuePath().c_str(), PqFlags::ReadOnly) == 0) {
-            if (getQueueProdInfo(*localQueue, clssp, latestInfo) == 0) {
-                hasLatest = true;
-            }
-        }
-    }
-    struct StateFlusher {
-        SavedInfoFile& sm;
-        ProdInfo& info;
-        bool& hasInfo;
-        ~StateFlusher() { if (hasInfo) sm.Write(info); }
-    } flusher{stateManager, latestInfo, hasLatest};
-    std::unique_ptr<IProductStore> persistentQueue = StorageFactory::Create(serializer);
-    errCode = persistentQueue->open(registry::getQueuePath().c_str(), PqFlags::Default);
-    if (errCode) return errCode;
-    auto handler = std::make_shared<DownstreamClientHandler>(
-        persistentQueue.get(),
-        [&latestInfo, &hasLatest, shifter](const ProdInfo& info, int success) {
-            if (success) {
-                latestInfo = info;
-                hasLatest = true;
-            }
-            shifter->Process(success, info.sz);
-        }
-    );
-    ServiceAddr target(source, port);
-    unsigned rpcTimeout = registry::getUint(registry::RegistryKey::RpcTimeout);
-    auto client = NetworkFactory::CreateClient(std::move(target), rpcTimeout);
-    while (!errCode && !SignalManager::IsDone()) {
-        int doSleep = 1;
-        defaultFrom = Timestamp::Now();
-        defaultFrom.tv_sec -= backoffTime;
-        if (defaultFrom.tv_sec > clssp.from_sec ||
-           (defaultFrom.tv_sec == clssp.from_sec && defaultFrom.tv_usec > clssp.from_usec)) {
-            clssp.from_sec = defaultFrom.tv_sec;
-            clssp.from_usec = defaultFrom.tv_usec;
-        }
-        auto modernClass = clssp;
-        if (hasLatest && latestInfo.arrival.tv_sec != -1) {
-            ProdSpec sigSpec;
-            sigSpec.feedtype = NONE;
-            sigSpec.pattern = "SIG=" + latestInfo.signature.ToString();
-            modernClass.specs.push_back(sigSpec);
-            LogNotice("Resuming upstream feed from state file: {}", sigSpec.pattern);
-        }
-        if (client->Connect() == 0) {
-            if (disableNagles) client->DisableNagles();
-            FeedRequest req;
-            req.isNotifier = false;
-            req.maxHereis = isPrimary? UINT_MAX : 0;
-            req.requestedClass = modernClass;
-            FeedResponse resp = client->SubscribeAndListen(req, handler, maxSilence);
-            if (resp.statusCode != ReplyStatus::OK) {
-                LogError("Upstream feed request failed: {}", client->GetLastError());
-            }
-            client->Disconnect();
-            if (shifter->ShouldSwitch()) {
-                isPrimary = !isPrimary;
-                shifter->Init(isPrimary == 1);
-                doSleep = 0;
-            }
-        } else {
-            LogError("Couldn't connect to upstream LDM {}:{} - {}", source, port, client->GetLastError());
-            if (shifter->ShouldSwitch()) {
-                isPrimary = !isPrimary;
-                shifter->Init(isPrimary == 1);
-                doSleep = 0;
-            }
-        }
-        if (!errCode && doSleep) {
-            if (SignalManager::IsDone()) break;
-            sleep(2 * registry::getSystemInterval());
-        }
-    }
-    return errCode;
-}
-
-static void requester_exec(const char* source, const unsigned port, ProdClass clssp,
-                           int isPrimary, const unsigned feedCount,
-                           bool disableNagles, unsigned int maxHereis) {
-    int errCode = requester_core(source, port, clssp, isPrimary, feedCount, disableNagles, maxHereis);
-    exit(errCode);
-}
 
 RdmEngine::RdmEngine() : Application("The Unidata Local Data Manager (LDM) server core engine.") {}
 
@@ -174,20 +34,14 @@ void RdmEngine::StopEngine() {
     }
     (void) uldb_.Remove(getpid());
     (void) uldb_.Close();
-    
+
     const bool isTopProc = getpid() == getpgrp();
     if (isTopProc) {
-        // Protect the parent so it can finish reaping
         SignalManager::Ignore(SIGTERM);
         LogNotice("Terminating process group cleanly (children and grandchildren)");
-        
-        // Broadcast SIGTERM to the isolated group. 
-        // Because of setpgid(0,0), this safely ignores the RAPIO supervisor.
         PrivilegeManager::Instance().RaisePrivileges();
         (void)kill(0, SIGTERM);
         PrivilegeManager::Instance().LowerPrivileges();
-        
-        // Wait for the tree to collapse
         while (Reap(-1, 0) > 0) {}
         (void) uldb_.Delete("");
     }
@@ -199,12 +53,15 @@ int RdmEngine::Daemonize() {
     if (pid < 0) return 1;
     if (pid > 0) exit(0);
     if (setsid() < 0) return 2;
+
     SignalManager::Ignore(SIGHUP);
+
     if ((pid = fork()) < 0) return 1;
     if (pid) {
         fmt::print(stdout, "{}\n", static_cast<long>(pid));
         exit(0);
     }
+
     for (int i = 0; i < 3; ++i) close(i);
     (void)open("/dev/null", O_RDONLY);
     (void)open("/dev/null", O_RDWR);
@@ -215,14 +72,13 @@ int RdmEngine::Daemonize() {
 pid_t RdmEngine::Reap(pid_t pid, int options) {
     int status = 0;
     pid_t wpid = processManager_.Reap(pid, options, &status);
-    
     if (wpid > 0 && WIFSIGNALED(status)) {
         switch (WTERMSIG(status)) {
             case SIGQUIT: case SIGILL: case SIGTRAP: case SIGABRT:
             case SIGFPE: case SIGBUS: case SIGSEGV: case SIGSYS:
             case SIGXCPU: case SIGXFSZ:
                 LogNotice("Killing (SIGTERM) process group due to fatal child signal");
-                (void) kill(0, SIGTERM); 
+                (void) kill(0, SIGTERM);
                 break;
         }
     }
@@ -240,18 +96,16 @@ void RdmEngine::ConfigureOptions() {
     RegisterOption('t', "timeout", "Set RPC timeout", "60");
     RegisterFlag('n', "Check configuration file syntax only");
     RegisterFlag('N', "Disable Nagle's Algorithm (TCP_NODELAY)");
-    RegisterFlag('D', "Force background daemonization mode"); // Fix implemented here
+    RegisterFlag('D', "Force background daemonization mode");
     RegisterOption('H', "maxhereis", "Max size for HEREIS transfer", "16384");
 }
 
 bool RdmEngine::ProcessOptions() {
     if (!Application::ProcessOptions()) return false;
 
-    // 0. INTERCEPT -n FIRST (Stateless offline validation)
     if (IsSet('n')) {
         std::string configPath = positionalArgs_.empty() ? "ldmd.conf" : positionalArgs_[0];
         unsigned int checkPort = IsSet('P') ? std::stoul(GetOption('P')) : 388;
-        
         ServerConfig config;
         bool success = ConfParser::Parse(configPath, config, checkPort, true);
         
@@ -264,13 +118,9 @@ bool RdmEngine::ProcessOptions() {
         } else {
             LogNotice("Syntax check successful. Exiting.");
         }
-        
         exit(EXIT_SUCCESS);
     }
 
-    // Defaults should be from the registry.xml unless overridden
-   
-    // 1. INTERFACE (-I)
     ldmBindAddr_ = GetOption('I');
     if (ldmBindAddr_.empty()) {
         ldmBindAddr_ = registry::getString(registry::RegistryKey::Hostname);
@@ -278,7 +128,6 @@ bool RdmEngine::ProcessOptions() {
         registry::putString(registry::RegistryKey::Hostname, ldmBindAddr_);
     }
 
-    // 2. PORT (-P)
     unsigned int regPort = registry::getUint(registry::RegistryKey::Port);
     if (IsSet('P')) {
         ldmPort_ = std::stoul(GetOption('P'));
@@ -287,69 +136,50 @@ bool RdmEngine::ProcessOptions() {
     }
     registry::putUint(registry::RegistryKey::Port, ldmPort_);
 
-    // 3. MAX CLIENTS (-M)
-    // Note: Add a RegistryKey for MaxClients if you haven't yet!
     if (IsSet('M')) {
         maxClients_ = std::stoul(GetOption('M'));
     }
-
-    // 4. MAX LATENCY (-m)
     if (IsSet('m')) {
         registry::putUint(registry::RegistryKey::MaxLatency, std::stoul(GetOption('m')));
     }
-
-    // 5. RPC TIMEOUT (-t)
     if (IsSet('t')) {
         registry::putUint(registry::RegistryKey::RpcTimeout, std::stoul(GetOption('t')));
     }
-
-    // 6. TIME OFFSET (-o)
     if (IsSet('o')) {
         registry::putInt(registry::RegistryKey::TimeOffset, std::stoi(GetOption('o')));
     }
-
-    // 7. QUEUE PATH (-q)
     if (IsSet('q')) {
         registry::setQueuePath(GetOption('q'));
     }
-
-    // 8. LDMD CONFIG PATH (Positional)
     if (!positionalArgs_.empty()) {
         registry::setLdmdConfigPath(positionalArgs_[0]);
     }
-
-    // Flags & Unregistered Options
     if (IsSet('N')) disableNagles_ = true;
     if (IsSet('D')) becomeDaemon_ = true;
     if (IsSet('H')) maxHereis_ = std::stoul(GetOption('H'));
 
-    // 9. VALIDATION STEP
     auto maxLatency = registry::getUint(registry::RegistryKey::MaxLatency);
     auto effectiveOffset = registry::getTimeOffset();
     if (effectiveOffset > maxLatency) {
         LogError("invalid toffset ({}) > max_latency ({})", effectiveOffset, maxLatency);
         return false;
     }
-
     return true;
 }
 
 bool RdmEngine::Initialize() {
     if (!Application::Initialize()) return false;
 
-    // Compile-time DONTFORK macro removed. 
-    // Purely programmatic runtime control now.
     if (becomeDaemon_) {
         if (!registry::close()) return false;
         if (Daemonize()) return false;
     }
-
     if (getpgid(0) != getpid()) (void)setpgid(0, 0);
-    
+
     SignalManager::SetShutdownHook([this]() {
         if (server_) server_->Stop();
     });
-    
+
     return true;
 }
 
@@ -357,72 +187,56 @@ int RdmEngine::Run() {
     int exitStatus = EXIT_SUCCESS;
     std::string configPath = registry::getLdmdConfigPath();
     ServerConfig config;
+
     if (!ConfParser::Parse(configPath, config, ldmPort_)) {
         LogFatal("Failed to parse configuration file: {}", configPath);
-        return EXIT_FAILURE; 
+        return EXIT_FAILURE;
     }
-    
+
     if (config.allowRules.empty() && config.acceptRules.empty() &&
         config.execRules.empty() && config.requestRules.empty()) {
         LogFatal("The configuration file \"{}\" is empty", configPath);
-        return EXIT_FAILURE; // Safe to return here: no resources allocated yet
+        return EXIT_FAILURE;
     }
-    
-        auto uldb_status = static_cast<int>(uldb_.Delete(""));
-        if (uldb_status && static_cast<int>(UldbStatus::EXIST) != uldb_status) return EXIT_FAILURE;
-        if (uldb_.Create("", maxClients_ * 1024) != UldbStatus::SUCCESS) return EXIT_FAILURE;
-        
-        aclManager_ = std::make_unique<AclManager>(std::move(config.allowRules), std::move(config.acceptRules));
-        
-        bool spawnSuccess = true;
 
-        // Spawn EXEC actions (like pqact)
-        for (const auto& execRule : config.execRules) {
-            if (processManager_.SpawnExec(execRule) < 0) {
-                spawnSuccess = false;
-                break;
-            }
+    auto uldb_status = static_cast<int>(uldb_.Delete(""));
+    if (uldb_status && static_cast<int>(UldbStatus::EXIST) != uldb_status) return EXIT_FAILURE;
+    if (uldb_.Create("", maxClients_ * 1024) != UldbStatus::SUCCESS) return EXIT_FAILURE;
+
+    aclManager_ = std::make_unique<AclManager>(std::move(config.allowRules), std::move(config.acceptRules));
+
+    bool spawnSuccess = true;
+
+    // Spawn EXEC actions (like pqact)
+    for (const auto& execRule : config.execRules) {
+        if (processManager_.SpawnExec(execRule) < 0) {
+            spawnSuccess = false;
+            break;
         }
-        
-        auto feedCount = config.requestRules.size();
-        bool nagles = disableNagles_;
-        unsigned int hereis = maxHereis_;
-        
-        // Spawn upstream requesters
-        if (spawnSuccess) {
-            for (const auto& reqRule : config.requestRules) {
-                pid_t pid = processManager_.SpawnRequester(reqRule.upstreamHost, [&reqRule, feedCount, nagles, hereis]() {
-                    ProdClass clss;
-                    clss.from_sec = 0; clss.from_usec = 0;
-                    clss.to_sec = 0x7fffffff; clss.to_usec = 999999;
-                    clss.specs.push_back({reqRule.feedtype, reqRule.pattern});
-                    requester_exec(reqRule.upstreamHost.c_str(), reqRule.port, clss, 1, feedCount, nagles, hereis);
-                });
-                if (pid < 0) {
-                    spawnSuccess = false;
-                    break;
-                }
-            }
-        }
-        
-        const std::string broker = "rdmbroker";
+    }
 
-        // Spawn broker if we need a listening port
-        if (spawnSuccess && aclManager_->RequiresServer()) {
-            ExecRule serverRule;
-            std::string cmd = broker;
-            
-            // Pass the bind interface if one was specified
-            if (!ldmBindAddr_.empty()) {
-                cmd += " -I " + ldmBindAddr_;
+    // Spawn upstream requesters
+    auto feedCount = config.requestRules.size();
+    bool nagles = disableNagles_;
+    unsigned int hereis = maxHereis_;
+
+    // Spawn upstream requesters using the new dedicated binary
+    if (spawnSuccess) {
+        for (const auto& reqRule : config.requestRules) {
+            std::string cmd = "rdm-request";
+            cmd += " -h " + reqRule.upstreamHost;
+            cmd += " -P " + std::to_string(reqRule.port);
+            cmd += " -f " + reqRule.feedtype.ToString();
+            cmd += " -p \"" + reqRule.pattern + "\"";
+            cmd += " -c " + std::to_string(feedCount);
+            if (nagles) cmd += " -N";
+            cmd += " -H " + std::to_string(hereis);
+
+            std::string qPath = registry::getQueuePath();
+            if (!qPath.empty()) {
+                cmd += " -q " + qPath;
             }
 
-            cmd += " -P " + std::to_string(ldmPort_);
-            
-            // Explicitly pass the Max Clients limit
-            cmd += " -M " + std::to_string(maxClients_);
-
-            if (disableNagles_) cmd += " -N";
             if (log_is_enabled_debug) cmd += " -x";
             else if (log_is_enabled_info) cmd += " -v";
             
@@ -431,52 +245,71 @@ int RdmEngine::Run() {
                 cmd += " -l " + logDest;
             }
 
-            std::string qPath = registry::getQueuePath();
-            if (!qPath.empty()) {
-                cmd += " -q " + qPath;
-            }
-
-            cmd += " " + configPath;
-            
-            serverRule.command = Wordexp(cmd);
-            pid_t srvPid = processManager_.SpawnExec(serverRule);
-            if (srvPid < 0) {
-                LogFatal("Failed to spawn {}!", broker);
+            ExecRule rule;
+            rule.command = Wordexp(cmd);
+            pid_t pid = processManager_.SpawnExec(rule);
+            if (pid < 0) {
+                LogFatal("Failed to spawn rdm-request for {}", reqRule.upstreamHost);
                 spawnSuccess = false;
+                break;
             }
         }
+    }
 
-        if (!spawnSuccess) {
-            LogError("Startup aborted due to spawn failure. Initiating teardown.");
-            exitStatus = EXIT_FAILURE;
-        } else {
-            // ==========================================================
-            // BULLETPROOF SUPERVISOR LOOP
-            // ==========================================================
-            // Unconditionally wait here as long as we have active children
-            while (!SignalManager::IsDone() && processManager_.Count() > 0) {
-                while (Reap(-1, WNOHANG) > 0) {}
-                sleep(registry::getSystemInterval());
-            }
+    const std::string listener = "rdm-listen";
+    if (spawnSuccess && aclManager_->RequiresServer()) {
+        ExecRule serverRule;
+        std::string cmd = listener;
+        if (!ldmBindAddr_.empty()) {
+            cmd += " -I " + ldmBindAddr_;
+        }
+        cmd += " -P " + std::to_string(ldmPort_);
+        cmd += " -M " + std::to_string(maxClients_);
+        
+        if (log_is_enabled_debug) cmd += " -x";
+        else if (log_is_enabled_info) cmd += " -v";
+        
+        std::string logDest = GetOption('l');
+        if (!logDest.empty()) {
+            cmd += " -l " + logDest;
         }
 
-        // ==========================================================
-        // BULLETPROOF CLEANUP LOGIC
-        // ==========================================================
-        LogNotice("RdmEngine shutting down: signaling children and waiting for termination...");
-        SignalManager::Ignore(SIGTERM);
-        
-        // Terminate tracked children
-        processManager_.KillAll(SIGTERM);
-        
-        // Ensure all tracked processes are cleanly reaped before exiting
-        while (processManager_.Count() > 0) {
-            Reap(-1, 0); // Using RdmEngine::Reap so child crash signals are still logged
+        std::string qPath = registry::getQueuePath();
+        if (!qPath.empty()) {
+            cmd += " -q " + qPath;
         }
-        LogNotice("RdmEngine tracked child shutdown complete.");
-        // ==========================================================
-    
+
+        cmd += " " + configPath;
+        
+        serverRule.command = Wordexp(cmd);
+        pid_t srvPid = processManager_.SpawnExec(serverRule);
+        if (srvPid < 0) {
+            LogFatal("Failed to spawn {}!", listener);
+            spawnSuccess = false;
+        }
+    }
+
+    if (!spawnSuccess) {
+        LogError("Startup aborted due to spawn failure. Initiating teardown.");
+        exitStatus = EXIT_FAILURE;
+    } else {
+        while (!SignalManager::IsDone() && processManager_.Count() > 0) {
+            while (Reap(-1, WNOHANG) > 0) {}
+            SignalManager::SleepResponsive(registry::getSystemInterval());
+        }
+    }
+
+    LogNotice("RdmEngine shutting down: signaling children and waiting for termination...");
+    SignalManager::Ignore(SIGTERM);
+    processManager_.KillAll(SIGTERM);
+
+    while (processManager_.Count() > 0) {
+        Reap(-1, 0);
+    }
+
+    LogNotice("RdmEngine tracked child shutdown complete.");
+
     return exitStatus;
 }
 
-} // namespace rdm
+}

@@ -149,6 +149,9 @@ addLDMTest(SOURCES testSavedInfoFile.cpp)
 # Test the AutoShifter 
 addLDMTest(SOURCES testAutoShifter.cpp)
 
+# Test the ProcessNotifier 
+addLDMTest(SOURCES testProcessNotifier.cpp)
+
 # Manual tests (for now at least)
 # Test pipeline speed (from testpipeline.sh)
 #addLDMTest(SOURCES testPipeline.cpp)

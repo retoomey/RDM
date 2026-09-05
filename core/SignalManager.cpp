@@ -2,6 +2,8 @@
 #include "Log.h"
 #include <csignal>
 #include <utility>
+#include <chrono>
+#include <unistd.h>
 
 namespace rdm {
 
@@ -66,6 +68,15 @@ void SignalManager::Initialize() {
     sigaddset(&sigset, SIGCHLD);
     sigaddset(&sigset, SIGCONT);
     sigprocmask(SIG_UNBLOCK, &sigset, nullptr);
+}
+
+void SignalManager::SleepResponsive(unsigned int seconds) {
+    auto start = std::chrono::steady_clock::now();
+    auto duration = std::chrono::seconds(seconds);
+    while (!IsDone()) {
+        if (std::chrono::steady_clock::now() - start >= duration) break;
+        usleep(100000); // 100ms chunks to remain responsive to signals
+    }
 }
 
 void SignalManager::SetShutdownHook(std::function<void()> hook) {

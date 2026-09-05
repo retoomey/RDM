@@ -165,7 +165,7 @@ protected:
                 return allResponding ? 0 : 1;
             }
             
-            sleep(interval_);
+            SignalManager::SleepResponsive(interval_);
         }
         return 0;
     }

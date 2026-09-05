@@ -103,6 +103,7 @@ public:
     }
 
     int OnNotification(const PeerContext& peer, const ProdInfo& info) override { 
+        LogDebug("PullHandler::OnNotification hit for {}", info.ident);
         UpdateClassTime(info.arrival.tv_sec, info.arrival.tv_usec);
         PrintInfo(info);
         return 0; 
@@ -210,9 +211,7 @@ protected:
             if (client->Connect() != 0) {
                 LogError("Connection failed: {}", client->GetLastError());
 
-                if (SignalManager::IsDone()) break;
-
-                sleep(10);
+                SignalManager::SleepResponsive(1);
                 continue;
             }
 
@@ -224,14 +223,13 @@ protected:
             FeedResponse resp = client->SubscribeAndListen(req, handler, timeo_);
             if (resp.statusCode == ReplyStatus::SHUTTING_DOWN) {
               LogError("Access denied by upstream LDM: {}", client->GetLastError());
-              client->Disconnect();
+              client->Disconnect(); // Give up.  We 'could' retry?
               break;
             } else if (resp.statusCode != ReplyStatus::OK) {
               LogError("Pull failed: {}", client->GetLastError());
             }
             client->Disconnect();
-            if (SignalManager::IsDone()) break;
-            sleep(10);
+            SignalManager::SleepResponsive(1);
         }
 
         return EXIT_SUCCESS;

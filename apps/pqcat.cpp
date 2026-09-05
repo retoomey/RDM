@@ -178,10 +178,12 @@ protected:
             
             status = cursor_->sequence(Match::GreaterThan, clss_, callback, this);
                 
-            if (status == 0) continue;
+            if (status == 0){
+               lastDataVersion_ = pq_->getDataVersion();
+               continue;
+            }
 
             if (status == static_cast<int>(PqStatus::End)) {
-                LogDebug("End of Queue");
                 if (!IsSet('w')) break; // Explicitly break if run-once is set
                 WaitOnQueue(0);        // Infinite event-driven wait (act as a tail)
                 continue;              // Jump straight back to the top of the loop

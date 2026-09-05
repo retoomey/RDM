@@ -3,6 +3,7 @@
 #include "IProductStore.h"
 #include "Signature.h"
 #include "ProdInfo.h"
+#include "ProcessNotifier.h"
 
 #include <functional>
 
@@ -48,10 +49,11 @@ struct pqctl {
   off_t          mvrtSize;
   size_t         mvrtSlots;
 
+  rdm::SharedSyncState sync_state;
   // Shared modern sync vs signals
-  pthread_mutex_t data_mutex;
-  pthread_cond_t  data_cond;
-  uint64_t        data_version; // Monotonic sequence counter for lost-wakeup prevention
+  //pthread_mutex_t data_mutex;
+  //pthread_cond_t  data_cond;
+  //uint64_t        data_version; // Monotonic sequence counter for lost-wakeup prevention
 };
 
 namespace rdm {

@@ -649,7 +649,7 @@ private:
             if (status == 0) continue;
             
             if (status == static_cast<int>(PqStatus::End)) {
-                LogDebug("End of queue");
+               // LogDebug("End of queue");
             } else if (status > 0) {
                 LogError("pq_sequence: {}", std::strerror(status));
             }
@@ -674,24 +674,26 @@ private:
         Timestamp tvout;
         int ifd = fileno(stdin);
         int ready;
-        int width = (1 << ifd);
+        int width = ifd + 1;
         fd_set readfds;
-        struct timeval timeo;
 
         clss_.from_sec = Timestamp::ZERO.tv_sec;
         clss_.from_usec = Timestamp::ZERO.tv_usec;
         clss_.to_sec = Timestamp::ENDT.tv_sec;
         clss_.to_usec = Timestamp::ENDT.tv_usec;
-        
+
         time_t f_t = clss_.from_sec;
         time_t t_t = clss_.to_sec;
         LogInfo("From time set to {}", ctime(&f_t));
         LogInfo("To time set to {}", ctime(&t_t));
-        
+
         cursor_->setCursorToLast(clss_, tvout);
+        
+        // Track the data version before entering the loop
+        uint64_t lastDataVersion = managedQueue_->getDataVersion();
 
         if (tty_flag_) {
-            fmt::print(stdout, "(Type ^D when finished)\n");
+            fmt::print(stdout, "(Type ^D or Enter when finished)\n");
             if (set_stdin(0)) {
                 LogError("set_stdin: noncanonical mode set failed");
                 return;
@@ -699,12 +701,12 @@ private:
         }
 
         while (keep_at_it) {
+            // 1. Non-blocking check for user input to quit
             FD_ZERO(&readfds);
             FD_SET(ifd, &readfds);
-            timeo.tv_sec = 1;
-            timeo.tv_usec = 0;
-            ready = select(width, &readfds, 0, 0, &timeo);
+            struct timeval no_wait = {0, 0};
             
+            ready = select(width, &readfds, 0, 0, &no_wait);
             if (ready < 0) {
                 if (errno == EINTR) {
                     errno = 0;
@@ -714,41 +716,40 @@ private:
                 exit(1);
             }
             
-            if (ready > 0) {
-                if (FD_ISSET(ifd, &readfds)) {
-                    ch = getc(stdin);
-                    if (ch != ' ' && ch != '\n') {
-                        while (1) {
-                            status = cursor_->sequence(Match::GreaterThan, clss_, display_watch, nullptr);
-                            if (status == 0) continue;
-                            else if (status == static_cast<int>(PqStatus::End)) {
-                                LogDebug("End of queue");
-                                break;
-                            } else {
-                                fmt::print(stdout, "status: {}\n", status);
-                                LogError("pq.sequence: {}", std::strerror(status));
-                                return;
-                            }
-                        }
-                    } else {
-                        keep_at_it = 0;
-                    }
-                }
-            } else {
-                while (1) {
-                    status = cursor_->sequence(Match::GreaterThan, clss_, display_watch, nullptr);
-                    if (status == 0) continue;
-                    else if (status == static_cast<int>(PqStatus::End)) {
-                        LogDebug("End of queue");
-                        break;
-                    } else {
-                        fmt::print(stdout, "status: {}\n", status);
-                        LogError("pq.sequence: {}", std::strerror(status));
-                        return;
-                    }
+            if (ready > 0 && FD_ISSET(ifd, &readfds)) {
+                ch = getc(stdin);
+                if (ch == ' ' || ch == '\n' || ch == '\004' || ch == EOF) {
+                    keep_at_it = 0;
+                    continue; // Skip straight to exit
                 }
             }
+
+            // 2. Drain the queue of any available products
+            bool read_something = false;
+            while (keep_at_it) {
+                status = cursor_->sequence(Match::GreaterThan, clss_, display_watch, nullptr);
+                if (status == 0) {
+                    read_something = true;
+                    // Sync our version tracker on successful reads
+                    lastDataVersion = managedQueue_->getDataVersion();
+                    continue;
+                } else if (status == static_cast<int>(PqStatus::End)) {
+                    break; // Reached the end of the queue cleanly
+                } else {
+                    LogError("pq.sequence: {}", std::strerror(status));
+                    keep_at_it = 0;
+                    break;
+                }
+            }
+
+            // 3. Block efficiently until new data arrives 
+            // (Max 1 second timeout to keep the UI responsive to keypresses)
+            if (keep_at_it && !read_something) {
+                managedQueue_->waitForData(lastDataVersion, 1);
+                lastDataVersion = managedQueue_->getDataVersion();
+            }
         }
+
         if (tty_flag_) {
             if (reset_stdin()) LogError("reset_stdin: failed");
             fmt::print(stdout, "\n");
@@ -768,7 +769,7 @@ private:
                 break;
             }
             case static_cast<int>(PqStatus::End):
-                LogDebug("End of queue");
+                //LogDebug("End of queue");
                 return;
             default:
                 LogError("pq.sequenceDelete: {}", std::strerror(status));

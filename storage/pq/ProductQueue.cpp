@@ -721,80 +721,44 @@ std::unique_ptr<IQueueCursor> ProductQueue::CreateCursor() {
     return std::make_unique<QueueCursor>(*this); 
 }
 
-#if 0
 int ProductQueue::notifyReaders() {
-    if (!file_.isOpen() || !indexManager_.GetControl()) return EINVAL;
-    pqctl* ctl = indexManager_.GetControl();
+    if (!file_.isOpen()) return EINVAL;
     
-    int status = pthread_mutex_lock(&ctl->data_mutex);
-    if (status == EOWNERDEAD) {
-        pthread_mutex_consistent(&ctl->data_mutex);
-    }
+    // Map writable to increment version, but bypass fcntl locking
+    auto ctlRgn = regionManager_->getRegion(0, static_cast<size_t>(dataOffset_), 
+                                            RegionFlags::Write | RegionFlags::NoLock);
+    if (!ctlRgn) return EINVAL;
     
-    ctl->data_version++; // Increment generation count
-    pthread_cond_broadcast(&ctl->data_cond);
-    pthread_mutex_unlock(&ctl->data_mutex);
-    return 0;
-}
-#endif
-
-int ProductQueue::notifyReaders() {
-    if (!file_.isOpen() || !indexManager_.GetControl()) return EINVAL;
+    pqctl* ctl = static_cast<pqctl*>(ctlRgn->get());
+    ProcessNotifier notifier(&ctl->sync_state, false);
     
-    pqctl* ctl = indexManager_.GetControl();
-    
-    int status = pthread_mutex_lock(&ctl->data_mutex);
-    if (status == EOWNERDEAD) {
-        // The previous owner died while holding the lock. 
-        // We successfully acquired it, but must mark it consistent before proceeding.
-        pthread_mutex_consistent(&ctl->data_mutex);
-    } else if (status != 0) {
-        // A fatal lock error occurred (e.g., ENOTRECOVERABLE, EINVAL).
-        // Bail out immediately to avoid undefined behavior on broadcast/unlock.
-        return status;
-    }
-
-    // Safely inside the lock boundary
-    ctl->data_version++;
-    pthread_cond_broadcast(&ctl->data_cond);
-    
-    pthread_mutex_unlock(&ctl->data_mutex);
-    
-    return 0;
+    int status = notifier.Notify();
+    ctlRgn->markModified();
+    return status;
 }
 
 uint64_t ProductQueue::getDataVersion() {
-    if (!file_.isOpen() || !indexManager_.GetControl()) return 0;
-    return indexManager_.GetControl()->data_version;
+    if (!file_.isOpen()) return 0;
+    
+    auto ctlRgn = regionManager_->getRegion(0, static_cast<size_t>(dataOffset_), RegionFlags::NoLock);
+    if (!ctlRgn) return 0;
+    
+    pqctl* ctl = static_cast<pqctl*>(ctlRgn->get());
+    ProcessNotifier notifier(&ctl->sync_state, true);
+    return notifier.GetVersion();
 }
 
 int ProductQueue::waitForData(uint64_t lastSeenVersion, unsigned int timeoutSecs) {
-    if (!file_.isOpen() || !indexManager_.GetControl()) return EINVAL;
-    pqctl* ctl = indexManager_.GetControl();
-    int lockStatus = pthread_mutex_lock(&ctl->data_mutex);
-    if (lockStatus == EOWNERDEAD) {
-        pthread_mutex_consistent(&ctl->data_mutex);
-    }
-    int status = 0;
-    // Predicate check: Only sleep if no new data was committed since lastSeenVersion
+    if (!file_.isOpen()) return EINVAL;
     
-    while (ctl->data_version == lastSeenVersion) {
-        if (timeoutSecs == 0) {
-            // Infinite wait: purely event-driven
-            status = pthread_cond_wait(&ctl->data_cond, &ctl->data_mutex);
-            if (status != 0) break;
-        } else {
-            // Failsafe timeout wait
-            struct timespec ts;
-            clock_gettime(CLOCK_MONOTONIC, &ts);
-            ts.tv_sec += timeoutSecs;
-            status = pthread_cond_timedwait(&ctl->data_cond, &ctl->data_mutex, &ts);
-            if (status != 0) break; // Break out immediately on ETIMEDOUT
-        }
-    }
+    auto ctlRgn = regionManager_->getRegion(0, static_cast<size_t>(dataOffset_), RegionFlags::NoLock);
+    if (!ctlRgn) return EINVAL;
     
-    pthread_mutex_unlock(&ctl->data_mutex);
-    return status;
+    pqctl* ctl = static_cast<pqctl*>(ctlRgn->get());
+    bool isReadOnly = fIsSet(pflags_, PqFlags::ReadOnly);
+    
+    ProcessNotifier notifier(&ctl->sync_state, isReadOnly);
+    return notifier.Wait(lastSeenVersion, timeoutSecs);
 }
 
 }

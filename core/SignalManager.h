@@ -24,6 +24,8 @@ public:
   static void
   SetHangupHook(std::function<void()> hook);
 
+  static void SleepResponsive(unsigned int seconds);
+
   // Explicitly ignore a specific signal (useful for app-specific quirks like SIGXFSZ)
   static void
   Ignore(int signum);

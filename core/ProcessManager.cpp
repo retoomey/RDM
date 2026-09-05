@@ -28,21 +28,6 @@ pid_t ProcessManager::SpawnExec(const ExecRule& rule) {
     return pid;
 }
 
-pid_t ProcessManager::SpawnRequester(const std::string& host, std::function<void()> runFunc) {
-    pid_t pid = os::ldmFork();
-    if (pid == -1) return -1;
-
-    if (pid == 0) {
-        // Drop privileges for the requester thread safely
-        PrivilegeManager::Instance().PermanentlyDropPrivileges();
-        runFunc();
-        _exit(0);
-    }
-
-    Add(pid, "REQUEST " + host);
-    return pid;
-}
-
 bool ProcessManager::Add(pid_t pid, const std::string& description) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto result = activeProcesses_.emplace(pid, description);

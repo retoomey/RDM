@@ -14,9 +14,19 @@
 addLDMBinary(rdmd
     SOURCES ldmd/ldmd.cpp
 )
-addLDMBinary(rdmbroker
-    SOURCES pqbroker.cpp
+addLDMBinary(rdm-request           # Handle REQUEST worker
+    SOURCES ldmd/rdmrequest.cpp
 )
+addLDMBinary(rdm-listen            # Listen for ALLOW/ACCEPT on a port
+    SOURCES ldmd/rdmlisten.cpp
+)
+addLDMBinary(rdm-accept            # ALLOW/ACCEPT one connection
+    SOURCES ldmd/rdmaccept.cpp
+)
+# Old one
+#addLDMBinary(rdmbroker
+#    SOURCES pqbroker.cpp
+#)
 
 # ==============================================================================
 # Local Product Queue tools

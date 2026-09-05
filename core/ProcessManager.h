@@ -25,8 +25,6 @@ public:
 
   pid_t
   SpawnExec(const ExecRule& rule);
-  pid_t
-  SpawnRequester(const std::string& host, std::function<void()> runFunc);
 
   bool
   Add(pid_t pid, const std::string& description);

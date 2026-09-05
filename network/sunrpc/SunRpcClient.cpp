@@ -243,13 +243,16 @@ int SunRpcClient::SendProduct(const Product& clean_prod) {
 }
 
 int SunRpcClient::SendNotification(const ProdInfo& clean_info) {
-    return CallRpc<ProdInfo, void>(
+    LogDebug("Attempting to SendNotification for {}", clean_info.ident);
+    int status = CallRpc<ProdInfo, void>(
         NOTIFICATION,
         reinterpret_cast<xdrproc_t>(xdr_net_prod_info),
         const_cast<ProdInfo*>(&clean_info),
         reinterpret_cast<xdrproc_t>(xdr_void),
         nullptr
     );
+    LogDebug("SendNotification CallRpc returned {}", status);
+    return status;
 }
 
 int SunRpcClient::Flush() {

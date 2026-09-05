@@ -113,6 +113,7 @@ public:
     int error = pq_->insert(prod);
     if (error == 0) {
       vetCreationTimeAndSignal(prod.info);
+      pq_->notifyReaders();
       UpdateSavedInfoAndAutoshift(prod.info, 1);
     } else if ((error == static_cast<int>(PqStatus::Dup)) || (error == static_cast<int>(PqStatus::Big))) {
       UpdateSavedInfoAndAutoshift(prod.info, 0);
@@ -168,6 +169,7 @@ public:
       int error = activeQueueEntry_->commit();
       if (error == 0) {
         vetCreationTimeAndSignal(pendingProd_.info);
+        pq_->notifyReaders();
         UpdateSavedInfoAndAutoshift(pendingProd_.info, 1);
       } else {
         activeQueueEntry_->rollback();

@@ -118,5 +118,22 @@ bool IsLocalHost(const std::string& remoteHost) {
     return false;
 }
 
+std::string GetIpString(const struct sockaddr_storage* addr, socklen_t addrLen) {
+    if (!addr) return "unknown_ip";
+    
+    char ipStr[NI_MAXHOST];
+    if (getnameinfo(reinterpret_cast<const struct sockaddr*>(addr), addrLen, 
+                    ipStr, sizeof(ipStr), nullptr, 0, NI_NUMERICHOST) != 0) {
+        return "unknown_ip";
+    }
+    
+    // Optional: Bracket IPv6 addresses to match your ALLOW rule expectations
+    if (addr->ss_family == AF_INET6) {
+        return "[" + std::string(ipStr) + "]";
+    }
+    
+    return std::string(ipStr);
+}
+
 } // namespace network
 }

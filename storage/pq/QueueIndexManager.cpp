@@ -34,6 +34,7 @@ void QueueIndexManager::InitializeControlHeader(void* ctlRegion, off_t dataOffse
     ctl->mvrtSize = -1;
     ctl->mvrtSlots = 0;
 
+#if 0
     pthread_mutexattr_t mattr;
     pthread_mutexattr_init(&mattr);
     pthread_mutexattr_setpshared(&mattr, PTHREAD_PROCESS_SHARED);
@@ -49,6 +50,8 @@ void QueueIndexManager::InitializeControlHeader(void* ctlRegion, off_t dataOffse
     pthread_condattr_destroy(&cattr);
 
     ctl->data_version = 0;
+#endif
+    ProcessNotifier::Initialize(&ctl->sync_state);
 }
 
 int QueueIndexManager::ValidateControlHeader(const void* ctlRegion, size_t regionSize, size_t pageSize,

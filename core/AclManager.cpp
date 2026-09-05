@@ -61,6 +61,10 @@ int AclManager::ReduceToAllowed(const std::string& hostName, const std::string& 
 
     // 3. Intersect the requested feedtypes with the allowed feedtypes
     for (const auto& spec : want.specs) {
+        if (spec.feedtype == rdm::NONE) {
+          intersect.specs.push_back(spec);
+          continue;
+        }
         FeedType reduced = spec.feedtype & allowedFeed;
         if (reduced != rdm::NONE) { // 0 = NONE
             ProdSpec newSpec;
@@ -95,6 +99,10 @@ int AclManager::ReduceToAcceptable(const std::string& hostName, const std::strin
 
     // Intersect the offered specs with the accepted feedtypes
     for (const auto& spec : offered.specs) {
+        if (spec.feedtype == rdm::NONE) {
+          intersect.specs.push_back(spec);
+          continue;
+        }
         FeedType reduced = spec.feedtype & acceptedFeed;
         if (reduced != rdm::NONE) {
             ProdSpec newSpec;

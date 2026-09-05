@@ -72,6 +72,7 @@ private:
 
     if (upFilter_ && !upFilter_->IsMatch(*info)) { return 0; }
 
+    LogDebug("ProcessStreamProduct eval: ident={} isNotifier={}", info->ident, isNotifier_);
     if (isNotifier_) {
       return client->SendNotification(*info);
     } else {
@@ -150,23 +151,57 @@ public:
   }
 
   int StreamProducts(std::shared_ptr<IClient> client) override {
+#if 0
     ensureQueueOpen();
     if (!queue_open_) { return -1; }
-
     if (client->Connect() != 0) { return -1; }
 
     StreamContext ctx{ this, client, 0 };
     bool flushNeeded    = false;
     time_t lastSendTime = time(NULL);
     Match mt   = Match::GreaterThan;
-    
+
     auto cursor = managed_pq_->CreateCursor();
     cursor->setCursorClass(&mt, activeSub_);
+#endif
+    ensureQueueOpen();
+    if (!queue_open_) { return -1; }
+    if (client->Connect() != 0) { return -1; }
+    StreamContext ctx{ this, client, 0 };
+    bool flushNeeded    = false;
+    time_t lastSendTime = time(NULL);
+    Match mt   = Match::GreaterThan;
+    auto cursor = managed_pq_->CreateCursor();
+  
+    // SIG= LOGIC ---
+    bool cursorSetBySig = false;
+    for (const auto& spec : activeSub_.specs) {
+      if (spec.feedtype == rdm::NONE && spec.pattern.rfind("SIG=", 0) == 0) {
+          std::string sigHex = spec.pattern.substr(4);
+          auto sigOpt = Signature::Parse(sigHex);
+          if (sigOpt) {
+              if (cursor->setCursorFromSignature(*sigOpt) == 0) {
+                  cursorSetBySig = true;
+                  LogNotice("Cursor successfully set to resume from signature {}", sigHex);
+                  break;
+              }
+          }
+      }
+    }
+    if (!cursorSetBySig) {
+      cursor->setCursorClass(&mt, activeSub_);
+    }  
+    uint64_t lastVersion = managed_pq_->getDataVersion();
 
     while (!SignalManager::IsDone()) {
       ctx.sendStatus = 0;
       int pqStatus = cursor->next(false, activeSub_, stream_callback, false, &ctx);
-      if (pqStatus < 0) {
+
+      if (pqStatus > 0) {
+          // Lock contention (EAGAIN/EACCES). Yield CPU to avoid starving the writer.
+          usleep(100000);
+          continue;
+      } else if (pqStatus < 0) {
         if (pqStatus == static_cast<int>(PqStatus::End)) {
           if (flushNeeded) {
             if (SignalManager::IsDone()) { break; }
@@ -174,16 +209,25 @@ public:
             flushNeeded  = false;
             lastSendTime = time(NULL);
           }
-
+          
           time_t timeSinceLastSend = time(NULL) - lastSendTime;
           auto interval = registry::getSystemInterval();
-
           if (interval <= timeSinceLastSend) {
             flushNeeded = true;
           } else {
             if (SignalManager::IsDone()) { break; }
-            struct timeval tv = { 1, 0 };
-            select(0, nullptr, nullptr, nullptr, &tv);
+            int waitStatus = managed_pq_->waitForData(lastVersion, 1);
+            
+            // Synchronize the version state before looping
+            lastVersion = managed_pq_->getDataVersion();
+
+            // If the condition variable was signaled, jump immediately to cursor->next()
+            if (waitStatus == 0) {
+                continue;
+            }
+            
+            // Only update the baseline version on an explicit timeout
+            lastVersion = managed_pq_->getDataVersion();
           }
         } else {
           return -1;
@@ -193,9 +237,9 @@ public:
       } else {
         flushNeeded  = true;
         lastSendTime = time(NULL);
+        lastVersion = managed_pq_->getDataVersion();
       }
     }
-
     client->Disconnect();
     return 0;
   }

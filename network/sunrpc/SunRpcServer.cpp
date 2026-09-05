@@ -23,20 +23,11 @@
 #include <rpc/xdr.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <cstring>
 #include <cerrno>
-
-#define SIX 6
-#define HEREIS 1
-#define FEEDME 4
-#define HIYA 5
-#define NOTIFICATION 8
-#define NOTIFYME 9
-#define COMINGSOON 12
-#define BLKDATA 13
-#define IS_ALIVE 14
 
 using namespace rdm::os;
 using namespace rdm::registry;
@@ -107,6 +98,32 @@ namespace {
                  tl_current_peer.hostname, tl_current_peer.send_size, tl_current_peer.recv_size);
     }
 
+    // Extracts the port from a peer address, regardless of address family.
+    static uint16_t GetPeerPort(const struct sockaddr_storage& addr) {
+        return (addr.ss_family == AF_INET6)
+            ? ntohs(reinterpret_cast<const struct sockaddr_in6*>(&addr)->sin6_port)
+            : ntohs(reinterpret_cast<const struct sockaddr_in*>(&addr)->sin_port);
+    }
+
+    // Common tail shared by FEEDME and NOTIFYME once the handler has approved
+    // the request: hand the now-duplicated socket off to the handler as a
+    // streaming session. maxHereis is 0 for NOTIFYME (notifier, no replay cap).
+    static void StartStreamingSession(SVCXPRT* transp, const PeerContext& peer,
+                                       const std::shared_ptr<IServiceHandler>& handler,
+                                       u_int maxHereis) {
+        int new_sock = dup(transp->xp_sock);
+        uint16_t port = GetPeerPort(peer.addr);
+        ServiceAddr target(peer.ip_string, port);
+
+        // Prevent RPC user-space buffer over-read race condition on the client
+        // by allowing it time to transition from CLIENT to SVCXPRT.
+        usleep(250000);
+
+        auto client = std::make_shared<SunRpcClient>(std::move(target), new_sock, &peer.addr, 60);
+        client->SetMaxHereIs(maxHereis);
+        (void)handler->StreamProducts(client);
+    }
+
     void server_dispatcher_6(struct svc_req* rqstp, SVCXPRT* transp) {
         auto handler = SunRpcServer::GetCurrentHandler();
         if (!handler) {
@@ -150,20 +167,9 @@ namespace {
 
                 svc_freeargs(transp, reinterpret_cast<xdrproc_t>(xdr_net_feedpar), reinterpret_cast<char*>(&fpar));
                 if (resp.statusCode == ReplyStatus::OK) {
-                    int new_sock = dup(transp->xp_sock);
-                    uint16_t port = (peer.addr.ss_family == AF_INET6) ?
-                        ntohs(reinterpret_cast<const struct sockaddr_in6*>(&peer.addr)->sin6_port) :
-                        ntohs(reinterpret_cast<const struct sockaddr_in*>(&peer.addr)->sin_port);
-                    ServiceAddr target(peer.ip_string, port);
-                    auto client = std::make_shared<SunRpcClient>(std::move(target), new_sock, &peer.addr, 60);
-                    client->SetMaxHereIs(fpar.max_hereis);
-                    int status = handler->StreamProducts(client);
-                    SignalManager::TriggerShutdown();
-                    return;
-                } else {
-                    SignalManager::TriggerShutdown();
-                    return;
+                    StartStreamingSession(transp, peer, handler, fpar.max_hereis);
                 }
+                SignalManager::TriggerShutdown();
                 return;
             }
             case NOTIFYME: {
@@ -187,19 +193,9 @@ namespace {
 
                 svc_freeargs(transp, reinterpret_cast<xdrproc_t>(xdr_net_prod_class), reinterpret_cast<char*>(&want));
                 if (resp.statusCode == ReplyStatus::OK) {
-                    int new_sock = dup(transp->xp_sock);
-                    uint16_t port = (peer.addr.ss_family == AF_INET6) ?
-                        ntohs(reinterpret_cast<const struct sockaddr_in6*>(&peer.addr)->sin6_port) :
-                        ntohs(reinterpret_cast<const struct sockaddr_in*>(&peer.addr)->sin_port);
-                    ServiceAddr target(peer.ip_string, port);
-                    auto client = std::make_shared<SunRpcClient>(std::move(target), new_sock, &peer.addr, 60);
-                    int status = handler->StreamProducts(client);
-                    SignalManager::TriggerShutdown();
-                    return;
-                } else {
-                    SignalManager::TriggerShutdown();
-                    return;
+                    StartStreamingSession(transp, peer, handler, /*maxHereis=*/0);
                 }
+                SignalManager::TriggerShutdown();
                 return;
             }
             case IS_ALIVE: {
@@ -378,12 +374,7 @@ namespace {
 
             if (status == 0) {
                 LogInfo("Connection from {}", remote->hostname);
-                
-                xprt->xp_raddr = {};
 
-                std::memcpy(&xprt->xp_raddr, raddr, std::min(static_cast<size_t>(addrLen), sizeof(xprt->xp_raddr)));
-                xprt->xp_addrlen = sizeof(*raddr);
-                
                 if (!svc_register(xprt, LDM_PROG, SIX, reinterpret_cast<void (*)(struct svc_req*, SVCXPRT*)>(server_dispatcher_6), 0)) {
                     LogError("Unable to register LDM-6 service.");
                     status = EFAULT;
@@ -400,91 +391,6 @@ namespace {
         return status;
     }
 
-#if 0
-    void handle_connection(const int sock, unsigned int max_clients, 
-      ProcessManager& procMgr) {
-        struct sockaddr_storage raddr{};
-        socklen_t len;
-        int xp_sock;
-        pid_t pid;
-
-    again:
-        len = sizeof(raddr);
-        raddr = {};
-        xp_sock = accept(sock, reinterpret_cast<struct sockaddr*>(&raddr), &len);
-
-        if (SignalManager::IsDone()) {
-            if (xp_sock >= 0) close(xp_sock);
-            return;
-        }
-
-        if (xp_sock < 0) {
-            if (errno == EINTR) {
-                errno = 0;
-                goto again;
-            }
-            LogSyserr("accept() failure: sock={}", sock);
-            return;
-        }
-
-        ensureCloseOnExec(xp_sock);
-
-        if (procMgr.Count() >= max_clients) {
-            InitializeActivePeer(&raddr, len, xp_sock);
-            LogNotice("Denying connection from [{}] because too many clients", tl_current_peer.ip_string);
-            (void)close(xp_sock);
-            return;
-        }
-
-#if 0
-        pid = ldmFork();
-        if (pid == -1) {
-            LogError("Couldn't fork process to handle incoming connection");
-            (void)close(xp_sock);
-            return;
-        }
-
-        if (pid > 0) {
-            // Parent: track the client process
-            (void)close(xp_sock);
-            procMgr.Add(pid, std::string("RPC Client"));
-            return;
-        }
-
-        // Child: handle the connection
-        (void)close(sock);
-        int status = runChildLdm(&raddr, len, xp_sock);
-        exit(status);
-#endif
-        // --- NEW LOGIC: Spawn rdmbroker via ForkAndExec ---
-        char fdStr[32];
-        std::snprintf(fdStr, sizeof(fdStr), "%d", xp_sock);
-
-        const char* argv[] = {
-            "rdmbroker",
-            "--socket-fd",
-            fdStr,
-            nullptr
-        };
-
-        rdm::os::ExecParams params;
-        params.argv = const_cast<char**>(argv);
-        params.preserveFd = xp_sock;
-        params.resetSignals = true;
-
-        pid = rdm::os::ForkAndExec(params);
-        if (pid == -1) {
-            LogError("Couldn't spawn rdmbroker to handle incoming connection");
-            (void)close(xp_sock);
-            return;
-        }
-
-        // Parent: track the broker process and close its own copy of the socket
-        (void)close(xp_sock);
-        procMgr.Add(pid, std::string("rdmbroker [") + tl_current_peer.ip_string + "]");
-        return;
-    }
-#endif
     void handle_connection(const int sock, unsigned int max_clients, 
       ProcessManager& procMgr, unsigned int port) { // --- ADDED port ---
         struct sockaddr_storage raddr{};
@@ -513,8 +419,13 @@ namespace {
 
         ensureCloseOnExec(xp_sock);
 
+        // Force the server to blast data without waiting for Delayed ACKs
+        int on = 1;
+        setsockopt(xp_sock, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(on));
+
+        std::string remoteHost = rdm::network::GetHostByAddr(&raddr, len);
+
         if (procMgr.Count() >= max_clients) {
-            std::string remoteHost = rdm::network::GetHostByAddr(&raddr, len);
             LogNotice("Denying connection from [{}] because too many clients", remoteHost);
             (void)close(xp_sock);
             return;
@@ -560,78 +471,40 @@ namespace {
 
         // Parent: track the broker process and close its own copy of the socket
         (void)close(xp_sock);
-        std::string remoteHost = rdm::network::GetHostByAddr(&raddr, len);
         procMgr.Add(pid, std::string("rdmbroker [") + remoteHost + "]");
     }
 
-#if 0
-    void sock_svc(const int sock, std::atomic<bool>& is_running, 
-        unsigned int max_clients, ProcessManager& procMgr) {
-        const int width = sock + 1;
-        while (is_running && !SignalManager::IsDone()) {
-            int ready;
-            fd_set readfds;
-            struct timeval stimeo;
-            stimeo.tv_sec = LDM_SELECT_TIMEO;
-            stimeo.tv_usec = 0;
-
-            FD_ZERO(&readfds);
-            FD_SET(sock, &readfds);
-
-            ready = select(width, &readfds, 0, 0, &stimeo);
-            if (SignalManager::IsDone()) break;
-
-            if (ready < 0) {
-                if (errno != EINTR) {
-                    LogSyserr("select() failure: sock={}", sock);
-                    SignalManager::TriggerShutdown();
-                    break;
-                }
-            } else if (ready > 0) {
-                handle_connection(sock, max_clients, procMgr);
+   void sock_svc(const int sock, std::atomic<bool>& is_running,
+    unsigned int max_clients, ProcessManager& procMgr, unsigned int port) {
+    const int width = sock + 1;
+    while (is_running && !SignalManager::IsDone()) {
+        int ready;
+        fd_set readfds;
+        struct timeval stimeo;
+        stimeo.tv_sec = LDM_SELECT_TIMEO;
+        stimeo.tv_usec = 0;
+        FD_ZERO(&readfds);
+        FD_SET(sock, &readfds);
+        ready = select(width, &readfds, 0, 0, &stimeo);
+        if (SignalManager::IsDone()) break;
+        if (ready < 0) {
+            if (errno != EINTR) {
+                LogSyserr("select() failure: sock={}", sock);
+                SignalManager::TriggerShutdown();
+                break;
             }
-
-            // Clean up any finished client processes
-            auto handler = SunRpcServer::GetCurrentHandler();
-            if (handler) {
-                while (handler->ReapChildProcess() > 0) {}
-            }
+        } else if (ready > 0) {
+            handle_connection(sock, max_clients, procMgr, port);
         }
-    }
-#endif
-    void sock_svc(const int sock, std::atomic<bool>& is_running, 
-        unsigned int max_clients, ProcessManager& procMgr, unsigned int port) {
-        const int width = sock + 1;
-        while (is_running && !SignalManager::IsDone()) {
-            int ready;
-            fd_set readfds;
-            struct timeval stimeo;
-            stimeo.tv_sec = LDM_SELECT_TIMEO;
-            stimeo.tv_usec = 0;
-
-            FD_ZERO(&readfds);
-            FD_SET(sock, &readfds);
-
-            ready = select(width, &readfds, 0, 0, &stimeo);
-            if (SignalManager::IsDone()) break;
-
-            if (ready < 0) {
-                if (errno != EINTR) {
-                    LogSyserr("select() failure: sock={}", sock);
-                    SignalManager::TriggerShutdown();
-                    break;
-                }
-            } else if (ready > 0) {
-                handle_connection(sock, max_clients, procMgr, port); // --- ADDED port ---
-            }
-
-            // Clean up any finished client processes
-            auto handler = SunRpcServer::GetCurrentHandler();
-            if (handler) {
-                while (handler->ReapChildProcess() > 0) {}
-            }
+        auto handler = SunRpcServer::GetCurrentHandler();
+        if (handler) {
+            while (handler->ReapChildProcess() > 0) {}
         }
+        
+        // Add this to prevent worker zombies from clogging the system during rapid connect/disconnects
+        while (procMgr.Reap(-1, WNOHANG) > 0) {}
     }
+  }
 }
 
 SunRpcServer::SunRpcServer() = default;
@@ -701,3 +574,4 @@ void SunRpcServer::Stop() {
 }
 
 }
+

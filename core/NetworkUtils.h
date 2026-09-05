@@ -72,5 +72,7 @@ AppendUpstreamHostToOrigin(const std::string& originalOrigin, const char * hostI
   return newOrigin;
 }
 
+std::string GetIpString(const struct sockaddr_storage* addr, socklen_t addrLen);
+
 } // namespace network
 }
